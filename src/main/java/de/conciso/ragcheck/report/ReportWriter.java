@@ -1,6 +1,6 @@
 package de.conciso.ragcheck.report;
 
-import de.conciso.ragcheck.model.EvalResult;
+import de.conciso.ragcheck.model.AggregatedEvalResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,6 +22,7 @@ public class ReportWriter {
     private final String outputPath;
     private final String queryMode;
     private final int topK;
+    private final int runsPerTestCase;
     private final String testCasesPath;
 
     private final JsonReportWriter jsonReportWriter;
@@ -32,6 +33,7 @@ public class ReportWriter {
             @Value("${ragchecker.output.path}") String outputPath,
             @Value("${ragchecker.query.mode}") String queryMode,
             @Value("${ragchecker.query.top-k}") int topK,
+            @Value("${ragchecker.runs.per-testcase:1}") int runsPerTestCase,
             @Value("${ragchecker.testcases.path}") String testCasesPath,
             JsonReportWriter jsonReportWriter,
             MarkdownReportWriter markdownReportWriter,
@@ -40,14 +42,15 @@ public class ReportWriter {
         this.outputPath = outputPath;
         this.queryMode = queryMode;
         this.topK = topK;
+        this.runsPerTestCase = runsPerTestCase;
         this.testCasesPath = testCasesPath;
         this.jsonReportWriter = jsonReportWriter;
         this.markdownReportWriter = markdownReportWriter;
         this.htmlReportWriter = htmlReportWriter;
     }
 
-    public void write(List<EvalResult> results) {
-        ReportData data = ReportData.of(results, queryMode, topK, testCasesPath);
+    public void write(List<AggregatedEvalResult> results) {
+        ReportData data = ReportData.of(results, queryMode, topK, runsPerTestCase, testCasesPath);
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
         String baseName = "ragcheck_" + timestamp;
 

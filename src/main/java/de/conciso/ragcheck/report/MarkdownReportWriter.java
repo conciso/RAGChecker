@@ -1,5 +1,6 @@
 package de.conciso.ragcheck.report;
 
+import de.conciso.ragcheck.model.AggregatedEvalResult;
 import de.conciso.ragcheck.model.EvalResult;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +30,7 @@ public class MarkdownReportWriter {
         sb.append("|---|---|\n");
         sb.append("| Query Mode | ").append(data.queryMode()).append(" |\n");
         sb.append("| Top-K | ").append(data.topK()).append(" |\n");
+        sb.append("| Läufe je Testfall | ").append(data.runsPerTestCase()).append(" |\n");
         sb.append("| Testfälle | ").append(data.testCasesPath()).append(" |\n\n");
 
         // Zusammenfassung
@@ -38,34 +40,47 @@ public class MarkdownReportWriter {
         sb.append(String.format("| Ø Recall | %.2f |%n", data.avgRecall()));
         sb.append(String.format("| Ø Precision | %.2f |%n", data.avgPrecision()));
         sb.append(String.format("| Ø F1 | %.2f |%n", data.avgF1()));
+        sb.append(String.format("| Ø Hit-Rate | %.2f |%n", data.avgHitRate()));
+        sb.append(String.format("| Ø MRR | %.2f |%n", data.avgMrr()));
         sb.append("| Testfälle gesamt | ").append(data.results().size()).append(" |\n\n");
 
         // Ergebnisse-Tabelle
         sb.append("## Ergebnisse\n\n");
-        sb.append("| ID | Status | Recall | Precision | F1 | Retrieved | Expected |\n");
-        sb.append("|---|---|---|---|---|---|---|\n");
-        for (EvalResult r : data.results()) {
-            String status = statusEmoji(r.f1());
-            sb.append(String.format("| %s | %s | %.2f | %.2f | %.2f | %d | %d |%n",
-                    r.testCaseId(), status, r.recall(), r.precision(), r.f1(),
-                    r.retrievedDocuments().size(), r.expectedDocuments().size()));
+        sb.append("| ID | Status | Recall | ±σ | Precision | ±σ | F1 | ±σ | Hit-Rate | MRR |\n");
+        sb.append("|---|---|---|---|---|---|---|---|---|---|\n");
+        for (AggregatedEvalResult r : data.results()) {
+            String status = statusEmoji(r.avgF1());
+            sb.append(String.format("| %s | %s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
+                    r.testCaseId(), status,
+                    r.avgRecall(), r.stdDevRecall(),
+                    r.avgPrecision(), r.stdDevPrecision(),
+                    r.avgF1(), r.stdDevF1(),
+                    r.hitRate(), r.mrr()));
         }
         sb.append("\n");
 
         // Details
         sb.append("## Details\n\n");
-        for (EvalResult r : data.results()) {
+        for (AggregatedEvalResult r : data.results()) {
             sb.append("### ").append(r.testCaseId()).append("\n\n");
             sb.append("**Prompt:** ").append(r.prompt()).append("\n\n");
+            sb.append("**Erwartet:** ").append(joinList(r.expectedDocuments())).append("\n\n");
 
-            sb.append("| | Dokumente |\n");
-            sb.append("|---|---|\n");
-            sb.append("| Erwartet | ").append(joinList(r.expectedDocuments())).append(" |\n");
-            sb.append("| Gefunden | ").append(joinList(r.retrievedDocuments())).append(" |\n\n");
+            sb.append("| Lauf | Recall | Precision | F1 | Gefunden |\n");
+            sb.append("|---|---|---|---|---|\n");
+            for (int i = 0; i < r.runResults().size(); i++) {
+                EvalResult run = r.runResults().get(i);
+                sb.append(String.format("| %d | %.2f | %.2f | %.2f | %s |%n",
+                        i + 1, run.recall(), run.precision(), run.f1(),
+                        joinList(run.retrievedDocuments())));
+            }
+            sb.append("\n");
 
-            if (r.queryResult() != null) {
-                List<String> high = r.queryResult().highLevelKeywords();
-                List<String> low = r.queryResult().lowLevelKeywords();
+            // Keywords aus dem letzten Lauf (repräsentativ)
+            EvalResult lastRun = r.runResults().get(r.runResults().size() - 1);
+            if (lastRun.queryResult() != null) {
+                List<String> high = lastRun.queryResult().highLevelKeywords();
+                List<String> low = lastRun.queryResult().lowLevelKeywords();
                 if (high != null && !high.isEmpty()) {
                     sb.append("**Keywords (high):** ").append(String.join(", ", high)).append("\n\n");
                 }

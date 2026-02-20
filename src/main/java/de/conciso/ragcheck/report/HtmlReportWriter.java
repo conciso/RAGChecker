@@ -1,5 +1,6 @@
 package de.conciso.ragcheck.report;
 
+import de.conciso.ragcheck.model.AggregatedEvalResult;
 import de.conciso.ragcheck.model.EvalResult;
 import org.springframework.stereotype.Component;
 
@@ -42,6 +43,7 @@ public class HtmlReportWriter {
         sb.append("<div class=\"config-grid\">\n");
         sb.append(configItem("Query Mode", data.queryMode()));
         sb.append(configItem("Top-K", String.valueOf(data.topK())));
+        sb.append(configItem("Läufe je Testfall", String.valueOf(data.runsPerTestCase())));
         sb.append(configItem("Testfälle", data.testCasesPath()));
         sb.append("</div>\n</header>\n");
 
@@ -50,22 +52,33 @@ public class HtmlReportWriter {
         sb.append(metricCard("Ø Recall", data.avgRecall()));
         sb.append(metricCard("Ø Precision", data.avgPrecision()));
         sb.append(metricCard("Ø F1", data.avgF1()));
+        sb.append(metricCard("Ø Hit-Rate", data.avgHitRate()));
+        sb.append(metricCard("Ø MRR", data.avgMrr()));
         sb.append("</section>\n");
 
         // Results table
         sb.append("<section>\n<h2>Ergebnisse</h2>\n");
         sb.append("<table>\n<thead>\n<tr>");
-        sb.append("<th>ID</th><th>Status</th><th>Recall</th><th>Precision</th><th>F1</th>");
-        sb.append("<th>Retrieved</th><th>Expected</th>");
+        sb.append("<th>ID</th><th>Status</th>");
+        sb.append("<th>Recall</th><th>±σ</th>");
+        sb.append("<th>Precision</th><th>±σ</th>");
+        sb.append("<th>F1</th><th>±σ</th>");
+        sb.append("<th>Hit-Rate</th><th>MRR</th>");
         sb.append("</tr>\n</thead>\n<tbody>\n");
-        for (EvalResult r : data.results()) {
-            String rowClass = rowClass(r.f1());
-            String statusEmoji = statusEmoji(r.f1());
+        for (AggregatedEvalResult r : data.results()) {
+            String rowClass = rowClass(r.avgF1());
+            String statusEmoji = statusEmoji(r.avgF1());
             sb.append(String.format(
-                    "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%d</td><td>%d</td></tr>%n",
+                    "<tr class=\"%s\"><td>%s</td><td>%s</td>" +
+                    "<td>%.2f</td><td class=\"muted\">%.2f</td>" +
+                    "<td>%.2f</td><td class=\"muted\">%.2f</td>" +
+                    "<td>%.2f</td><td class=\"muted\">%.2f</td>" +
+                    "<td>%.2f</td><td>%.2f</td></tr>%n",
                     rowClass, escape(r.testCaseId()), statusEmoji,
-                    r.recall(), r.precision(), r.f1(),
-                    r.retrievedDocuments().size(), r.expectedDocuments().size()));
+                    r.avgRecall(), r.stdDevRecall(),
+                    r.avgPrecision(), r.stdDevPrecision(),
+                    r.avgF1(), r.stdDevF1(),
+                    r.hitRate(), r.mrr()));
         }
         sb.append("</tbody>\n</table>\n</section>\n");
 
@@ -77,22 +90,33 @@ public class HtmlReportWriter {
 
         // Details
         sb.append("<section>\n<h2>Details</h2>\n");
-        for (EvalResult r : data.results()) {
+        for (AggregatedEvalResult r : data.results()) {
             sb.append("<details>\n");
             sb.append("<summary><strong>").append(escape(r.testCaseId())).append("</strong> — ")
-                    .append(statusEmoji(r.f1()))
-                    .append(String.format(" F1: %.2f</summary>%n", r.f1()));
+                    .append(statusEmoji(r.avgF1()))
+                    .append(String.format(" F1: %.2f &nbsp; Hit-Rate: %.2f &nbsp; MRR: %.2f</summary>%n",
+                            r.avgF1(), r.hitRate(), r.mrr()));
             sb.append("<div class=\"detail-body\">\n");
             sb.append("<p><strong>Prompt:</strong> ").append(escape(r.prompt())).append("</p>\n");
+            sb.append("<p><strong>Erwartet:</strong> ").append(escape(joinList(r.expectedDocuments()))).append("</p>\n");
 
-            sb.append("<table class=\"detail-table\">\n");
-            sb.append("<tr><th>Erwartet</th><td>").append(escape(joinList(r.expectedDocuments()))).append("</td></tr>\n");
-            sb.append("<tr><th>Gefunden</th><td>").append(escape(joinList(r.retrievedDocuments()))).append("</td></tr>\n");
-            sb.append("</table>\n");
+            // Per-run table
+            sb.append("<table class=\"run-table\">\n");
+            sb.append("<thead><tr><th>Lauf</th><th>Recall</th><th>Precision</th><th>F1</th><th>Gefunden</th></tr></thead>\n<tbody>\n");
+            for (int i = 0; i < r.runResults().size(); i++) {
+                EvalResult run = r.runResults().get(i);
+                sb.append(String.format(
+                        "<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%s</td></tr>%n",
+                        i + 1, run.recall(), run.precision(), run.f1(),
+                        escape(joinList(run.retrievedDocuments()))));
+            }
+            sb.append("</tbody>\n</table>\n");
 
-            if (r.queryResult() != null) {
-                List<String> high = r.queryResult().highLevelKeywords();
-                List<String> low = r.queryResult().lowLevelKeywords();
+            // Keywords aus dem letzten Lauf
+            EvalResult lastRun = r.runResults().get(r.runResults().size() - 1);
+            if (lastRun.queryResult() != null) {
+                List<String> high = lastRun.queryResult().highLevelKeywords();
+                List<String> low = lastRun.queryResult().lowLevelKeywords();
                 if (high != null && !high.isEmpty()) {
                     sb.append("<p><strong>Keywords (high):</strong> ").append(escape(String.join(", ", high))).append("</p>\n");
                 }
@@ -105,9 +129,7 @@ public class HtmlReportWriter {
         }
         sb.append("</section>\n");
 
-        // Chart.js script
         sb.append(buildChartScript(data));
-
         sb.append("</body>\n</html>\n");
         return sb.toString();
     }
@@ -117,13 +139,19 @@ public class HtmlReportWriter {
                 .map(r -> "\"" + r.testCaseId().replace("\"", "\\\"") + "\"")
                 .collect(Collectors.joining(", "));
         String recalls = data.results().stream()
-                .map(r -> String.format("%.2f", r.recall()))
+                .map(r -> String.format("%.2f", r.avgRecall()))
                 .collect(Collectors.joining(", "));
         String precisions = data.results().stream()
-                .map(r -> String.format("%.2f", r.precision()))
+                .map(r -> String.format("%.2f", r.avgPrecision()))
                 .collect(Collectors.joining(", "));
         String f1s = data.results().stream()
-                .map(r -> String.format("%.2f", r.f1()))
+                .map(r -> String.format("%.2f", r.avgF1()))
+                .collect(Collectors.joining(", "));
+        String hitRates = data.results().stream()
+                .map(r -> String.format("%.2f", r.hitRate()))
+                .collect(Collectors.joining(", "));
+        String mrrs = data.results().stream()
+                .map(r -> String.format("%.2f", r.mrr()))
                 .collect(Collectors.joining(", "));
 
         return """
@@ -135,31 +163,21 @@ public class HtmlReportWriter {
                       labels: [""" + labels + """
                 ],
                       datasets: [
-                        {
-                          label: 'Recall',
-                          data: [""" + recalls + """
-                ],
-                          backgroundColor: 'rgba(54, 162, 235, 0.7)'
-                        },
-                        {
-                          label: 'Precision',
-                          data: [""" + precisions + """
-                ],
-                          backgroundColor: 'rgba(255, 159, 64, 0.7)'
-                        },
-                        {
-                          label: 'F1',
-                          data: [""" + f1s + """
-                ],
-                          backgroundColor: 'rgba(75, 192, 192, 0.7)'
-                        }
+                        { label: 'Recall',     data: [""" + recalls + """
+                ], backgroundColor: 'rgba(54, 162, 235, 0.7)' },
+                        { label: 'Precision',  data: [""" + precisions + """
+                ], backgroundColor: 'rgba(255, 159, 64, 0.7)' },
+                        { label: 'F1',         data: [""" + f1s + """
+                ], backgroundColor: 'rgba(75, 192, 192, 0.7)' },
+                        { label: 'Hit-Rate',   data: [""" + hitRates + """
+                ], backgroundColor: 'rgba(153, 102, 255, 0.7)' },
+                        { label: 'MRR',        data: [""" + mrrs + """
+                ], backgroundColor: 'rgba(255, 99, 132, 0.7)' }
                       ]
                     },
                     options: {
                       responsive: true,
-                      scales: {
-                        y: { beginAtZero: true, max: 1.0 }
-                      }
+                      scales: { y: { beginAtZero: true, max: 1.0 } }
                     }
                   });
                 </script>
@@ -178,7 +196,7 @@ public class HtmlReportWriter {
                   .config-item span { display: block; font-size: 0.75rem; color: #888; }
                   .config-item strong { font-size: 1rem; }
                   .summary { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
-                  .card { flex: 1; min-width: 140px; border-radius: 8px; padding: 1rem 1.5rem; color: #fff; text-align: center; }
+                  .card { flex: 1; min-width: 120px; border-radius: 8px; padding: 1rem 1.5rem; color: #fff; text-align: center; }
                   .card .label { font-size: 0.85rem; opacity: 0.9; }
                   .card .value { font-size: 2rem; font-weight: bold; }
                   .card.green { background: #2e7d32; }
@@ -187,14 +205,16 @@ public class HtmlReportWriter {
                   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; margin-bottom: 2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
                   th, td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid #eee; }
                   thead { background: #333; color: #fff; }
+                  td.muted { color: #999; font-size: 0.85rem; }
                   tr.good { background: #e8f5e9; }
                   tr.warn { background: #fff8e1; }
                   tr.bad  { background: #ffebee; }
                   details { background: #fff; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 0.75rem; }
                   summary { padding: 0.6rem 1rem; cursor: pointer; }
                   .detail-body { padding: 0.5rem 1rem 1rem; }
-                  .detail-table { width: auto; box-shadow: none; margin-bottom: 0.5rem; }
-                  .detail-table th { background: #f0f0f0; color: #333; width: 8rem; }
+                  .run-table { width: auto; box-shadow: none; margin-bottom: 0.5rem; }
+                  .run-table thead { background: #f0f0f0; }
+                  .run-table th { color: #333; }
                   .chart-container { max-width: 900px; margin-bottom: 2rem; }
                   h2 { margin-top: 2rem; }
                   section { margin-bottom: 1rem; }

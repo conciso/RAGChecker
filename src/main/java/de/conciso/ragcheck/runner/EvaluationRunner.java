@@ -1,6 +1,6 @@
 package de.conciso.ragcheck.runner;
 
-import de.conciso.ragcheck.model.EvalResult;
+import de.conciso.ragcheck.model.AggregatedEvalResult;
 import de.conciso.ragcheck.model.TestCase;
 import de.conciso.ragcheck.report.ReportWriter;
 import de.conciso.ragcheck.service.EvaluationService;
@@ -32,39 +32,38 @@ public class EvaluationRunner implements CommandLineRunner {
         List<TestCase> testCases = loader.load();
         log.info("Loaded {} test case(s)", testCases.size());
 
-        List<EvalResult> results = evaluationService.evaluate(testCases);
+        List<AggregatedEvalResult> results = evaluationService.evaluate(testCases);
 
         printSummary(results);
         reportWriter.write(results);
     }
 
-    private void printSummary(List<EvalResult> results) {
-        String separator = "-".repeat(62);
+    private void printSummary(List<AggregatedEvalResult> results) {
+        String separator = "-".repeat(82);
         System.out.println();
         System.out.println("=== RAGChecker Summary ===");
-        System.out.printf("%-12s %8s %10s %8s %10s %10s%n",
-                "ID", "Recall", "Precision", "F1", "Retrieved", "Expected");
+        System.out.printf("%-12s %8s %8s %8s %8s %8s %8s %8s %8s%n",
+                "ID", "Recall", "±σ", "Prec.", "±σ", "F1", "±σ", "Hit%", "MRR");
         System.out.println(separator);
 
-        for (EvalResult r : results) {
-            System.out.printf("%-12s %8.2f %10.2f %8.2f %10d %10d%n",
+        for (AggregatedEvalResult r : results) {
+            System.out.printf("%-12s %8.2f %8.2f %8.2f %8.2f %8.2f %8.2f %8.2f %8.2f%n",
                     r.testCaseId(),
-                    r.recall(),
-                    r.precision(),
-                    r.f1(),
-                    r.retrievedDocuments().size(),
-                    r.expectedDocuments().size());
+                    r.avgRecall(),    r.stdDevRecall(),
+                    r.avgPrecision(), r.stdDevPrecision(),
+                    r.avgF1(),        r.stdDevF1(),
+                    r.hitRate(),      r.mrr());
         }
 
-        double avgRecall    = results.stream().mapToDouble(EvalResult::recall).average().orElse(0.0);
-        double avgPrecision = results.stream().mapToDouble(EvalResult::precision).average().orElse(0.0);
-        double avgF1        = results.stream().mapToDouble(EvalResult::f1).average().orElse(0.0);
-        int totalRetrieved  = results.stream().mapToInt(r -> r.retrievedDocuments().size()).sum();
-        int totalExpected   = results.stream().mapToInt(r -> r.expectedDocuments().size()).sum();
+        double avgRecall    = results.stream().mapToDouble(AggregatedEvalResult::avgRecall).average().orElse(0.0);
+        double avgPrecision = results.stream().mapToDouble(AggregatedEvalResult::avgPrecision).average().orElse(0.0);
+        double avgF1        = results.stream().mapToDouble(AggregatedEvalResult::avgF1).average().orElse(0.0);
+        double avgHitRate   = results.stream().mapToDouble(AggregatedEvalResult::hitRate).average().orElse(0.0);
+        double avgMrr       = results.stream().mapToDouble(AggregatedEvalResult::mrr).average().orElse(0.0);
 
         System.out.println(separator);
-        System.out.printf("%-12s %8.2f %10.2f %8.2f %10d %10d%n",
-                "AVG/TOTAL", avgRecall, avgPrecision, avgF1, totalRetrieved, totalExpected);
+        System.out.printf("%-12s %8.2f %8s %8.2f %8s %8.2f %8s %8.2f %8.2f%n",
+                "AVG", avgRecall, "", avgPrecision, "", avgF1, "", avgHitRate, avgMrr);
         System.out.println();
     }
 }

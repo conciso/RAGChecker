@@ -2,6 +2,7 @@ package de.conciso.ragcheck.report;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import de.conciso.ragcheck.model.AggregatedEvalResult;
 import de.conciso.ragcheck.model.EvalResult;
 import org.springframework.stereotype.Component;
 
@@ -28,6 +29,7 @@ public class JsonReportWriter {
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("queryMode", data.queryMode());
         config.put("topK", data.topK());
+        config.put("runsPerTestCase", data.runsPerTestCase());
         config.put("testCasesPath", data.testCasesPath());
         json.put("configuration", config);
 
@@ -35,6 +37,8 @@ public class JsonReportWriter {
         summary.put("avgRecall", round(data.avgRecall()));
         summary.put("avgPrecision", round(data.avgPrecision()));
         summary.put("avgF1", round(data.avgF1()));
+        summary.put("avgHitRate", round(data.avgHitRate()));
+        summary.put("avgMrr", round(data.avgMrr()));
         summary.put("totalTestCases", data.results().size());
         json.put("summary", summary);
 
@@ -42,24 +46,39 @@ public class JsonReportWriter {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("id", r.testCaseId());
             entry.put("prompt", r.prompt());
-            entry.put("recall", round(r.recall()));
-            entry.put("precision", round(r.precision()));
-            entry.put("f1", round(r.f1()));
+            entry.put("runs", r.runs());
+            entry.put("avgRecall", round(r.avgRecall()));
+            entry.put("avgPrecision", round(r.avgPrecision()));
+            entry.put("avgF1", round(r.avgF1()));
+            entry.put("stdDevRecall", round(r.stdDevRecall()));
+            entry.put("stdDevPrecision", round(r.stdDevPrecision()));
+            entry.put("stdDevF1", round(r.stdDevF1()));
+            entry.put("hitRate", round(r.hitRate()));
+            entry.put("mrr", round(r.mrr()));
             entry.put("expectedDocuments", r.expectedDocuments());
-            entry.put("retrievedDocuments", r.retrievedDocuments());
-            if (r.queryResult() != null) {
-                entry.put("entityCount", r.queryResult().entityCount());
-                entry.put("relationshipCount", r.queryResult().relationshipCount());
-                entry.put("chunkCount", r.queryResult().chunkCount());
-                entry.put("highLevelKeywords", r.queryResult().highLevelKeywords());
-                entry.put("lowLevelKeywords", r.queryResult().lowLevelKeywords());
-            }
+            entry.put("runResults", r.runResults().stream().map(this::runToMap).toList());
             return entry;
         }).toList();
 
         json.put("results", results);
 
         objectMapper.writeValue(path.toFile(), json);
+    }
+
+    private Map<String, Object> runToMap(EvalResult r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("recall", round(r.recall()));
+        m.put("precision", round(r.precision()));
+        m.put("f1", round(r.f1()));
+        m.put("retrievedDocuments", r.retrievedDocuments());
+        if (r.queryResult() != null) {
+            m.put("entityCount", r.queryResult().entityCount());
+            m.put("relationshipCount", r.queryResult().relationshipCount());
+            m.put("chunkCount", r.queryResult().chunkCount());
+            m.put("highLevelKeywords", r.queryResult().highLevelKeywords());
+            m.put("lowLevelKeywords", r.queryResult().lowLevelKeywords());
+        }
+        return m;
     }
 
     private double round(double value) {
