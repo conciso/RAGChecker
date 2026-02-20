@@ -1,0 +1,13 @@
+services:
+  ragcheck:
+    build: .
+    env_file: .env
+    volumes:
+      - ./testcases:/app/testcases:ro
+      - ./logs:/app/logs
+    networks:
+      - aibox_network
+
+networks:
+  aibox_network:
+    external: true
