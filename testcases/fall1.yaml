@@ -12,7 +12,7 @@
 - id: TC-002
   prompt: "Fasse mir den Inhalt der Abmahnung von Fall 1 zusammen."
   expected_documents:
-    - "Fall1_Abmahnung_02_10_24.pdf"
+    - "Fall1_Abmahnung_15_05_25.pdf"
   notes: "Fall 1.1 – Inhalt der Abmahnung (Oktober 2024, Sicherheitsverstoß Dacharbeit); Erwartungswert aus Antwortinhalt abgeleitet, Tabellenspalte war leer"
 
 - id: TC-003
