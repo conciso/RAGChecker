@@ -2,6 +2,7 @@ package de.conciso.ragcheck.runner;
 
 import de.conciso.ragcheck.model.EvalResult;
 import de.conciso.ragcheck.model.TestCase;
+import de.conciso.ragcheck.report.ReportWriter;
 import de.conciso.ragcheck.service.EvaluationService;
 import de.conciso.ragcheck.service.TestCaseLoader;
 import org.slf4j.Logger;
@@ -18,10 +19,12 @@ public class EvaluationRunner implements CommandLineRunner {
 
     private final TestCaseLoader loader;
     private final EvaluationService evaluationService;
+    private final ReportWriter reportWriter;
 
-    public EvaluationRunner(TestCaseLoader loader, EvaluationService evaluationService) {
+    public EvaluationRunner(TestCaseLoader loader, EvaluationService evaluationService, ReportWriter reportWriter) {
         this.loader = loader;
         this.evaluationService = evaluationService;
+        this.reportWriter = reportWriter;
     }
 
     @Override
@@ -32,6 +35,7 @@ public class EvaluationRunner implements CommandLineRunner {
         List<EvalResult> results = evaluationService.evaluate(testCases);
 
         printSummary(results);
+        reportWriter.write(results);
     }
 
     private void printSummary(List<EvalResult> results) {
