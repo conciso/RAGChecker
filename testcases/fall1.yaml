@@ -1,0 +1,76 @@
+# Testfälle aus Evaluationsdaten – Fall 1 (Arbeitsrecht)
+# Spalte "Erwartete Quellen" aus der Evaluationstabelle.
+# TC-002/003: kein expliziter Erwartungswert in der Tabelle – aus Antwortinhalt abgeleitet (mit Hinweis).
+# TC-012: Daten abgeschnitten – Erwartungswert aus dem Muster TC-007 bis TC-011 übernommen.
+
+- id: TC-001
+  prompt: "Gibt es eine Abmahnung in Verbindung mit Arbeitsunfähigkeit?"
+  expected_documents:
+    - "Fall1_Abmahnung_15_05_25.pdf"
+  notes: "Fall 1 – Hauptfrage; Abmahnung wegen fehlender AU-Bescheinigung"
+
+- id: TC-002
+  prompt: "Fasse mir den Inhalt der Abmahnung von Fall 1 zusammen."
+  expected_documents:
+    - "Fall1_Abmahnung_02_10_24.pdf"
+  notes: "Fall 1.1 – Inhalt der Abmahnung (Oktober 2024, Sicherheitsverstoß Dacharbeit); Erwartungswert aus Antwortinhalt abgeleitet, Tabellenspalte war leer"
+
+- id: TC-003
+  prompt: "Fasse mir den Inhalt der Abmahnung wegen Arbeitsunfähigkeit von Fall 1 zusammen."
+  expected_documents:
+    - "Fall1_Abmahnung_15_05_25.pdf"
+  notes: "Fall 1.2 – AU-Abmahnung Mai 2025; Erwartungswert aus Antwortinhalt abgeleitet, Tabellenspalte war leer"
+
+- id: TC-004
+  prompt: "Stelle mir die konkrete Klageschrift zur Verfügung!"
+  expected_documents:
+    - "Fall1_Klage.pdf"
+  notes: "Fall 1.3 – Direktanfrage Klageschrift"
+
+- id: TC-005
+  prompt: "Gibt es eine Klage für Fall 1?"
+  expected_documents:
+    - "Fall1_Klage.pdf"
+  notes: "Fall 1.3 (Folgefrage) – Existenz der Klage"
+
+- id: TC-006
+  prompt: "Können Sie mir die wichtigsten Punkte der Klageschrift für Fall 1 nennen?"
+  expected_documents:
+    - "Fall1_Klage.pdf"
+  notes: "Fall 1.4 – Kernpunkte der Klageschrift"
+
+- id: TC-007
+  prompt: "Gibt es eine gerichtliche Entscheidung zu dem Fall 1?"
+  expected_documents:
+    - "Fall1_ArbG_DO_08_07_25_Protokoll.pdf"
+  notes: "Fall 1.5 – Gerichtliche Entscheidung (Folgefrage)"
+
+- id: TC-008
+  prompt: "Können Sie mir den vollständigen Text des Urteils zur Verfügung stellen?"
+  expected_documents:
+    - "Fall1_ArbG_DO_08_07_25_Protokoll.pdf"
+  notes: "Fall 1.6 – Urteilstext"
+
+- id: TC-009
+  prompt: "Was hat das Gericht entschieden?"
+  expected_documents:
+    - "Fall1_ArbG_DO_08_07_25_Protokoll.pdf"
+  notes: "Fall 1.7 – Gerichtsentscheidung (Folgefrage)"
+
+- id: TC-010
+  prompt: "Was steht in dem Dokument mit Aktenzeichen 7 Ca 1937/25?"
+  expected_documents:
+    - "Fall1_ArbG_DO_08_07_25_Protokoll.pdf"
+  notes: "Fall 1.8 – Inhalt des Dokuments zu AZ 7 Ca 1937/25"
+
+- id: TC-011
+  prompt: "Gibt es ein Schreiben des Arbeitsgerichts zu dem Fall 1?"
+  expected_documents:
+    - "Fall1_ArbG_DO_08_07_25_Protokoll.pdf"
+  notes: "Fall 1.9 – Schreiben des ArbG (Folgefrage)"
+
+- id: TC-012
+  prompt: "Fasse das Protokoll in diesem Fall 1 zu Aktenzeichen 7 Ca 1937/25 zusammen."
+  expected_documents:
+    - "Fall1_ArbG_DO_08_07_25_Protokoll.pdf"
+  notes: "Fall 1.10 – Protokollzusammenfassung; Erwartungswert aus Muster TC-007–TC-011 übernommen, Tabellendaten waren abgeschnitten"

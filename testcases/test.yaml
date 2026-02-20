@@ -1,0 +1,10 @@
+# Testfälle aus Evaluationsdaten – Fall 1 (Arbeitsrecht)
+# Spalte "Erwartete Quellen" aus der Evaluationstabelle.
+# TC-002/003: kein expliziter Erwartungswert in der Tabelle – aus Antwortinhalt abgeleitet (mit Hinweis).
+# TC-012: Daten abgeschnitten – Erwartungswert aus dem Muster TC-007 bis TC-011 übernommen.
+
+- id: Test
+  prompt: "Wie alt ist Max Mustermann?"
+  expected_documents:
+    - "Max Mustermann.pdf"
+  notes: ""
