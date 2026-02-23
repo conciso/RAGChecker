@@ -2,7 +2,8 @@ package de.conciso.ragcheck.api;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import de.conciso.ragcheck.model.QueryResult;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,19 +11,26 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Stream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 public class LightRagClient {
 
     private static final Logger log = LoggerFactory.getLogger(LightRagClient.class);
 
+    // Matches "[N] some filename.pdf" at end of line
+    private static final Pattern REFERENCE_PATTERN =
+            Pattern.compile("^\\[(\\d+)]\\s*(.+?)\\s*$", Pattern.MULTILINE);
+
     private final RestClient restClient;
     private final String queryMode;
     private final int topK;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public LightRagClient(
             @Value("${ragchecker.lightrag.url}") String baseUrl,
@@ -39,7 +47,12 @@ public class LightRagClient {
         this.topK = topK;
     }
 
-    public QueryResult query(String prompt) {
+    /**
+     * Graph-Retrieval via /query/data.
+     * Gibt die referenzierten Dokumente in Reihenfolge zurück (Position = Relevanz-Rang).
+     * Kein LLM-Aufruf — schnell.
+     */
+    public List<String> queryData(String prompt) {
         QueryDataResponse response = restClient.post()
                 .uri("/query/data")
                 .body(Map.of(
@@ -52,71 +65,134 @@ public class LightRagClient {
                 .body(QueryDataResponse.class);
 
         if (response == null || response.data() == null) {
-            log.warn("Empty response from LightRAG for prompt: {}", prompt);
-            return new QueryResult(List.of(), List.of(), List.of(), 0, 0, 0, List.of(), List.of());
+            log.warn("Empty /query/data response for: {}", prompt);
+            return List.of();
         }
 
         QueryData data = response.data();
 
-        List<String> rawPaths = collectFilePaths(data);
-        List<String> deduplicatedPaths = rawPaths.stream().distinct().toList();
-        List<String> fileNames = deduplicatedPaths.stream()
-                .map(p -> Paths.get(p).getFileName().toString())
-                .distinct()
-                .toList();
-
-        List<String> entityNames = data.entities() == null ? List.of() :
-                data.entities().stream()
-                        .map(Entity::entityName)
+        List<String> fromReferences = data.references() == null ? List.of() :
+                data.references().stream()
+                        .map(Reference::filePath)
                         .filter(Objects::nonNull)
                         .toList();
 
-        int entityCount = data.entities() == null ? 0 : data.entities().size();
-        int relationshipCount = data.relationships() == null ? 0 : data.relationships().size();
-        int chunkCount = data.chunks() == null ? 0 : data.chunks().size();
-
-        Metadata meta = response.metadata();
-        List<String> highLevel = List.of();
-        List<String> lowLevel = List.of();
-        if (meta != null && meta.keywords() != null) {
-            if (meta.keywords().highLevel() != null) highLevel = meta.keywords().highLevel();
-            if (meta.keywords().lowLevel() != null) lowLevel = meta.keywords().lowLevel();
-        }
-
-        return new QueryResult(deduplicatedPaths, fileNames, entityNames,
-                entityCount, relationshipCount, chunkCount, highLevel, lowLevel);
-    }
-
-    private List<String> collectFilePaths(QueryData data) {
-        Stream<String> fromReferences = data.references() == null ? Stream.of() :
-                data.references().stream()
-                        .map(Reference::filePath)
-                        .filter(Objects::nonNull);
-
-        Stream<String> fromChunks = data.chunks() == null ? Stream.of() :
+        List<String> fromChunks = data.chunks() == null ? List.of() :
                 data.chunks().stream()
                         .map(Chunk::filePath)
-                        .filter(Objects::nonNull);
+                        .filter(Objects::nonNull)
+                        .toList();
 
-        Stream<String> fromEntities = data.entities() == null ? Stream.of() :
+        List<String> fromEntities = data.entities() == null ? List.of() :
                 data.entities().stream()
                         .map(Entity::filePath)
-                        .filter(Objects::nonNull);
+                        .filter(Objects::nonNull)
+                        .flatMap(p -> splitSep(p).stream())
+                        .toList();
 
-        Stream<String> fromRelationships = data.relationships() == null ? Stream.of() :
+        List<String> fromRelationships = data.relationships() == null ? List.of() :
                 data.relationships().stream()
                         .map(Relationship::filePath)
-                        .filter(Objects::nonNull);
+                        .filter(Objects::nonNull)
+                        .flatMap(p -> splitSep(p).stream())
+                        .toList();
 
-        return Stream.of(fromReferences, fromChunks, fromEntities, fromRelationships)
-                .flatMap(s -> s)
-                .toList();
+        log.debug("filePaths from references    : {}", fromReferences);
+        log.debug("filePaths from chunks        : {}", fromChunks);
+        log.debug("filePaths from entities      : {}", fromEntities);
+        log.debug("filePaths from relationships : {}", fromRelationships);
+
+        // References are the primary ranked list; others are supplementary
+        List<String> ordered = fromReferences.stream()
+                .map(p -> Paths.get(p).getFileName().toString())
+                .distinct()
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+
+        // Append any additional filenames not already present (from chunks/entities/relationships)
+        java.util.stream.Stream.of(fromChunks, fromEntities, fromRelationships)
+                .flatMap(List::stream)
+                .map(p -> Paths.get(p).getFileName().toString())
+                .filter(name -> !ordered.contains(name))
+                .distinct()
+                .forEach(ordered::add);
+
+        log.debug("Ordered documents for ranking: {}", ordered);
+        return List.copyOf(ordered);
     }
 
-    // --- Response Records ---
+    /**
+     * LLM-Aufruf via /query.
+     * Läuft das vollständige RAG-Pipeline inkl. LLM — dauert 30–60 s.
+     * Gibt den Antworttext und die darin zitierten Dokumente zurück.
+     */
+    public LlmResponse queryLlm(String prompt) {
+        String raw = restClient.post()
+                .uri("/query")
+                .body(Map.of(
+                        "query", prompt,
+                        "mode", queryMode,
+                        "stream", false,
+                        "top_k", topK
+                ))
+                .retrieve()
+                .body(String.class);
+
+        if (raw == null || raw.isBlank()) {
+            log.warn("Empty /query response for: {}", prompt);
+            return new LlmResponse(null, List.of());
+        }
+
+        log.debug("Raw /query response:\n{}", raw);
+
+        String responseText = extractResponseText(raw);
+        List<String> fileNames = parseReferencedFiles(responseText);
+
+        log.debug("LLM referenced files: {}", fileNames);
+        return new LlmResponse(responseText, fileNames);
+    }
+
+    public record LlmResponse(String responseText, List<String> referencedDocuments) {}
+
+    // --- helpers ---
+
+    private String extractResponseText(String raw) {
+        String trimmed = raw.trim();
+        if (trimmed.startsWith("{")) {
+            try {
+                JsonNode node = objectMapper.readTree(trimmed);
+                for (String field : List.of("response", "data", "result", "answer")) {
+                    if (node.has(field) && node.get(field).isTextual()) {
+                        return node.get(field).asText();
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Response is not valid JSON, treating as plain text");
+            }
+        }
+        return trimmed;
+    }
+
+    private List<String> parseReferencedFiles(String text) {
+        if (text == null || text.isBlank()) return List.of();
+        List<String> files = new ArrayList<>();
+        Matcher matcher = REFERENCE_PATTERN.matcher(text);
+        while (matcher.find()) {
+            String ref = matcher.group(2).trim();
+            if (!ref.isBlank()) files.add(ref);
+        }
+        return files.stream().distinct().toList();
+    }
+
+    /** Splits "<SEP>"-concatenated paths that LightRAG sometimes produces in entity file_path. */
+    private List<String> splitSep(String path) {
+        if (path == null) return List.of();
+        return List.of(path.split("<SEP>"));
+    }
+
+    // --- /query/data response records ---
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record QueryDataResponse(QueryData data, Metadata metadata) {}
+    record QueryDataResponse(QueryData data) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record QueryData(
@@ -129,8 +205,6 @@ public class LightRagClient {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Entity(
             @JsonProperty("entity_name") String entityName,
-            @JsonProperty("entity_type") String entityType,
-            String description,
             @JsonProperty("file_path") String filePath
     ) {}
 
@@ -138,14 +212,11 @@ public class LightRagClient {
     record Relationship(
             @JsonProperty("src_id") String srcId,
             @JsonProperty("tgt_id") String tgtId,
-            String description,
-            Double weight,
             @JsonProperty("file_path") String filePath
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Chunk(
-            String content,
             @JsonProperty("file_path") String filePath,
             @JsonProperty("chunk_id") String chunkId
     ) {}
@@ -154,25 +225,5 @@ public class LightRagClient {
     record Reference(
             @JsonProperty("reference_id") String referenceId,
             @JsonProperty("file_path") String filePath
-    ) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record Metadata(
-            @JsonProperty("query_mode") String queryMode,
-            Keywords keywords,
-            @JsonProperty("processing_info") ProcessingInfo processingInfo
-    ) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record Keywords(
-            @JsonProperty("high_level") List<String> highLevel,
-            @JsonProperty("low_level") List<String> lowLevel
-    ) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record ProcessingInfo(
-            @JsonProperty("total_entities_found") Integer totalEntitiesFound,
-            @JsonProperty("total_relations_found") Integer totalRelationsFound,
-            @JsonProperty("final_chunks_count") Integer finalChunksCount
     ) {}
 }

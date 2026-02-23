@@ -1,7 +1,8 @@
 package de.conciso.ragcheck.report;
 
 import de.conciso.ragcheck.model.AggregatedEvalResult;
-import de.conciso.ragcheck.model.EvalResult;
+import de.conciso.ragcheck.model.GraphRetrievalRunResult;
+import de.conciso.ragcheck.model.LlmRunResult;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -11,6 +12,7 @@ import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Component
@@ -20,12 +22,11 @@ public class HtmlReportWriter {
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
     public void write(ReportData data, Path path) throws IOException {
-        String ts = DISPLAY_FORMAT.format(data.timestamp());
-        String html = buildHtml(data, ts);
-        Files.writeString(path, html, StandardCharsets.UTF_8);
+        Files.writeString(path, buildHtml(data), StandardCharsets.UTF_8);
     }
 
-    private String buildHtml(ReportData data, String ts) {
+    private String buildHtml(ReportData data) {
+        String ts = DISPLAY_FORMAT.format(data.timestamp());
         StringBuilder sb = new StringBuilder();
 
         sb.append("<!DOCTYPE html>\n<html lang=\"de\">\n<head>\n");
@@ -33,95 +34,124 @@ public class HtmlReportWriter {
         sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
         sb.append("<title>RAGChecker Report — ").append(escape(ts)).append("</title>\n");
         sb.append("<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>\n");
-        sb.append(inlineCss());
+        sb.append(css());
         sb.append("</head>\n<body>\n");
 
         // Header
-        sb.append("<header>\n");
-        sb.append("<h1>RAGChecker Report</h1>\n");
-        sb.append("<p class=\"timestamp\">").append(escape(ts)).append("</p>\n");
-        sb.append("<div class=\"config-grid\">\n");
-        sb.append(configItem("Query Mode", data.queryMode()));
-        sb.append(configItem("Top-K", String.valueOf(data.topK())));
-        sb.append(configItem("Läufe je Testfall", String.valueOf(data.runsPerTestCase())));
-        sb.append(configItem("Testfälle", data.testCasesPath()));
+        sb.append("<header>\n<h1>RAGChecker Report</h1>\n");
+        sb.append("<p class=\"ts\">").append(escape(ts)).append("</p>\n");
+        sb.append("<div class=\"cfg\">\n");
+        sb.append(cfgItem("Query Mode", data.queryMode()));
+        sb.append(cfgItem("Top-K", String.valueOf(data.topK())));
+        sb.append(cfgItem("Läufe", String.valueOf(data.runsPerTestCase())));
+        sb.append(cfgItem("Testfälle", data.testCasesPath()));
         sb.append("</div>\n</header>\n");
 
-        // Summary cards
-        sb.append("<section class=\"summary\">\n");
-        sb.append(metricCard("Ø Recall", data.avgRecall()));
-        sb.append(metricCard("Ø Precision", data.avgPrecision()));
-        sb.append(metricCard("Ø F1", data.avgF1()));
-        sb.append(metricCard("Ø Hit-Rate", data.avgHitRate()));
-        sb.append(metricCard("Ø MRR", data.avgMrr()));
-        sb.append("</section>\n");
+        // Summary cards — two groups
+        sb.append("<section>\n<h2>Graph-Retrieval (/query/data)</h2>\n<div class=\"cards\">\n");
+        sb.append(card("Ø MRR", data.avgGraphMrr()));
+        sb.append(card("Ø NDCG@k", data.avgGraphNdcgAtK()));
+        sb.append(card("Ø Recall@k", data.avgGraphRecallAtK()));
+        sb.append("</div>\n</section>\n");
 
-        // Results table
-        sb.append("<section>\n<h2>Ergebnisse</h2>\n");
-        sb.append("<table>\n<thead>\n<tr>");
-        sb.append("<th>ID</th><th>Status</th>");
-        sb.append("<th>Recall</th><th>±σ</th>");
-        sb.append("<th>Precision</th><th>±σ</th>");
-        sb.append("<th>F1</th><th>±σ</th>");
-        sb.append("<th>Hit-Rate</th><th>MRR</th>");
-        sb.append("</tr>\n</thead>\n<tbody>\n");
-        for (AggregatedEvalResult r : data.results()) {
-            String rowClass = rowClass(r.avgF1());
-            String statusEmoji = statusEmoji(r.avgF1());
-            sb.append(String.format(
-                    "<tr class=\"%s\"><td>%s</td><td>%s</td>" +
-                    "<td>%.2f</td><td class=\"muted\">%.2f</td>" +
-                    "<td>%.2f</td><td class=\"muted\">%.2f</td>" +
-                    "<td>%.2f</td><td class=\"muted\">%.2f</td>" +
-                    "<td>%.2f</td><td>%.2f</td></tr>%n",
-                    rowClass, escape(r.testCaseId()), statusEmoji,
-                    r.avgRecall(), r.stdDevRecall(),
-                    r.avgPrecision(), r.stdDevPrecision(),
-                    r.avgF1(), r.stdDevF1(),
-                    r.hitRate(), r.mrr()));
-        }
-        sb.append("</tbody>\n</table>\n</section>\n");
+        sb.append("<section>\n<h2>LLM (/query)</h2>\n<div class=\"cards\">\n");
+        sb.append(card("Ø Recall", data.avgLlmRecall()));
+        sb.append(card("Ø Precision", data.avgLlmPrecision()));
+        sb.append(card("Ø F1", data.avgLlmF1()));
+        sb.append(card("Ø Hit-Rate", data.avgLlmHitRate()));
+        sb.append(card("Ø MRR", data.avgLlmMrr()));
+        sb.append("</div>\n</section>\n");
 
         // Chart
         sb.append("<section>\n<h2>Metriken je Testfall</h2>\n");
-        sb.append("<div class=\"chart-container\">\n");
-        sb.append("<canvas id=\"metricsChart\"></canvas>\n");
-        sb.append("</div>\n</section>\n");
+        sb.append("<div class=\"chart-wrap\"><canvas id=\"chart\"></canvas></div>\n</section>\n");
+
+        // Results tables
+        sb.append("<section>\n<h2>Ergebnisse — Graph-Retrieval</h2>\n");
+        sb.append("<table><thead><tr>");
+        sb.append("<th>ID</th><th>Status</th><th>MRR</th><th>±σ</th><th>NDCG@k</th><th>±σ</th><th>Recall@k</th><th>±σ</th>");
+        sb.append("</tr></thead><tbody>\n");
+        for (AggregatedEvalResult r : data.results()) {
+            sb.append(String.format(
+                    "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td></tr>%n",
+                    rc(r.graphMetrics().avgMrr()), escape(r.testCaseId()), emoji(r.graphMetrics().avgMrr()),
+                    r.graphMetrics().avgMrr(), r.graphMetrics().stdDevMrr(),
+                    r.graphMetrics().avgNdcgAtK(), r.graphMetrics().stdDevNdcgAtK(),
+                    r.graphMetrics().avgRecallAtK(), r.graphMetrics().stdDevRecallAtK()));
+        }
+        sb.append("</tbody></table>\n</section>\n");
+
+        sb.append("<section>\n<h2>Ergebnisse — LLM</h2>\n");
+        sb.append("<table><thead><tr>");
+        sb.append("<th>ID</th><th>Status</th><th>Recall</th><th>±σ</th><th>Precision</th><th>±σ</th><th>F1</th><th>±σ</th><th>Hit-Rate</th><th>MRR</th>");
+        sb.append("</tr></thead><tbody>\n");
+        for (AggregatedEvalResult r : data.results()) {
+            sb.append(String.format(
+                    "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td>%.2f</td></tr>%n",
+                    rc(r.llmMetrics().avgF1()), escape(r.testCaseId()), emoji(r.llmMetrics().avgF1()),
+                    r.llmMetrics().avgRecall(), r.llmMetrics().stdDevRecall(),
+                    r.llmMetrics().avgPrecision(), r.llmMetrics().stdDevPrecision(),
+                    r.llmMetrics().avgF1(), r.llmMetrics().stdDevF1(),
+                    r.llmMetrics().hitRate(), r.llmMetrics().avgMrr()));
+        }
+        sb.append("</tbody></table>\n</section>\n");
 
         // Details
         sb.append("<section>\n<h2>Details</h2>\n");
         for (AggregatedEvalResult r : data.results()) {
-            sb.append("<details>\n");
-            sb.append("<summary><strong>").append(escape(r.testCaseId())).append("</strong> — ")
-                    .append(statusEmoji(r.avgF1()))
-                    .append(String.format(" F1: %.2f &nbsp; Hit-Rate: %.2f &nbsp; MRR: %.2f</summary>%n",
-                            r.avgF1(), r.hitRate(), r.mrr()));
-            sb.append("<div class=\"detail-body\">\n");
+            sb.append("<details>\n<summary><strong>").append(escape(r.testCaseId()))
+                    .append("</strong> — Graph MRR: ").append(String.format("%.2f", r.graphMetrics().avgMrr()))
+                    .append(" &nbsp; LLM F1: ").append(String.format("%.2f", r.llmMetrics().avgF1()))
+                    .append("</summary>\n<div class=\"db\">\n");
+
             sb.append("<p><strong>Prompt:</strong> ").append(escape(r.prompt())).append("</p>\n");
-            sb.append("<p><strong>Erwartet:</strong> ").append(escape(joinList(r.expectedDocuments()))).append("</p>\n");
+            sb.append("<p><strong>Erwartet:</strong> ").append(escape(String.join(", ", r.expectedDocuments()))).append("</p>\n");
 
-            // Per-run table
-            sb.append("<table class=\"run-table\">\n");
-            sb.append("<thead><tr><th>Lauf</th><th>Recall</th><th>Precision</th><th>F1</th><th>Gefunden</th></tr></thead>\n<tbody>\n");
-            for (int i = 0; i < r.runResults().size(); i++) {
-                EvalResult run = r.runResults().get(i);
-                sb.append(String.format(
-                        "<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%s</td></tr>%n",
-                        i + 1, run.recall(), run.precision(), run.f1(),
-                        escape(joinList(run.retrievedDocuments()))));
-            }
-            sb.append("</tbody>\n</table>\n");
-
-            // Keywords aus dem letzten Lauf
-            EvalResult lastRun = r.runResults().get(r.runResults().size() - 1);
-            if (lastRun.queryResult() != null) {
-                List<String> high = lastRun.queryResult().highLevelKeywords();
-                List<String> low = lastRun.queryResult().lowLevelKeywords();
-                if (high != null && !high.isEmpty()) {
-                    sb.append("<p><strong>Keywords (high):</strong> ").append(escape(String.join(", ", high))).append("</p>\n");
+            // Rank table per expected doc
+            sb.append("<h4>Ränge je erwartetem Dokument</h4>\n");
+            sb.append("<table class=\"dt\"><thead><tr><th>Dokument</th>");
+            for (int i = 1; i <= r.runs(); i++) sb.append("<th>Lauf ").append(i).append("</th>");
+            sb.append("</tr></thead><tbody>\n");
+            for (Map.Entry<String, List<Integer>> e : r.graphMetrics().ranksByDoc().entrySet()) {
+                sb.append("<tr><td>").append(escape(e.getKey())).append("</td>");
+                for (int rank : e.getValue()) {
+                    String cls = rank == 0 ? "not-found" : rank <= 3 ? "top" : "";
+                    sb.append("<td class=\"").append(cls).append("\">")
+                            .append(rank == 0 ? "—" : rank).append("</td>");
                 }
-                if (low != null && !low.isEmpty()) {
-                    sb.append("<p><strong>Keywords (low):</strong> ").append(escape(String.join(", ", low))).append("</p>\n");
+                sb.append("</tr>\n");
+            }
+            sb.append("</tbody></table>\n");
+
+            // Graph runs
+            sb.append("<h4>Graph-Retrieval — Läufe</h4>\n");
+            sb.append("<table class=\"dt\"><thead><tr><th>Lauf</th><th>MRR</th><th>NDCG@k</th><th>Recall@k</th><th>Gefunden (Top 5)</th></tr></thead><tbody>\n");
+            for (int i = 0; i < r.graphRuns().size(); i++) {
+                GraphRetrievalRunResult g = r.graphRuns().get(i);
+                String top5 = g.retrievedDocuments().stream().limit(5)
+                        .map(this::escape).collect(Collectors.joining(", "));
+                sb.append(String.format("<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%s</td></tr>%n",
+                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), top5.isEmpty() ? "—" : top5));
+            }
+            sb.append("</tbody></table>\n");
+
+            // LLM runs
+            sb.append("<h4>LLM — Läufe</h4>\n");
+            sb.append("<table class=\"dt\"><thead><tr><th>Lauf</th><th>Recall</th><th>Precision</th><th>F1</th><th>Hit</th><th>Gefunden</th></tr></thead><tbody>\n");
+            for (int i = 0; i < r.llmRuns().size(); i++) {
+                LlmRunResult l = r.llmRuns().get(i);
+                sb.append(String.format("<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%s</td><td>%s</td></tr>%n",
+                        i + 1, l.recall(), l.precision(), l.f1(),
+                        l.hit() ? "✓" : "✗", escape(joinList(l.retrievedDocuments()))));
+            }
+            sb.append("</tbody></table>\n");
+
+            // LLM response text from last run
+            if (!r.llmRuns().isEmpty()) {
+                String resp = r.llmRuns().get(r.llmRuns().size() - 1).responseText();
+                if (resp != null && !resp.isBlank()) {
+                    sb.append("<h4>LLM-Antwort (letzter Lauf)</h4>\n");
+                    sb.append("<pre class=\"resp\">").append(escape(resp)).append("</pre>\n");
                 }
             }
 
@@ -129,132 +159,103 @@ public class HtmlReportWriter {
         }
         sb.append("</section>\n");
 
-        sb.append(buildChartScript(data));
+        sb.append(chartScript(data));
         sb.append("</body>\n</html>\n");
         return sb.toString();
     }
 
-    private String buildChartScript(ReportData data) {
-        String labels = data.results().stream()
-                .map(r -> "\"" + r.testCaseId().replace("\"", "\\\"") + "\"")
-                .collect(Collectors.joining(", "));
-        String recalls = data.results().stream()
-                .map(r -> String.format("%.2f", r.avgRecall()))
-                .collect(Collectors.joining(", "));
-        String precisions = data.results().stream()
-                .map(r -> String.format("%.2f", r.avgPrecision()))
-                .collect(Collectors.joining(", "));
-        String f1s = data.results().stream()
-                .map(r -> String.format("%.2f", r.avgF1()))
-                .collect(Collectors.joining(", "));
-        String hitRates = data.results().stream()
-                .map(r -> String.format("%.2f", r.hitRate()))
-                .collect(Collectors.joining(", "));
-        String mrrs = data.results().stream()
-                .map(r -> String.format("%.2f", r.mrr()))
-                .collect(Collectors.joining(", "));
+    private String chartScript(ReportData data) {
+        String labels     = join(data.results(), r -> "\"" + r.testCaseId().replace("\"", "\\\"") + "\"");
+        String graphMrr   = join(data.results(), r -> fmt(r.graphMetrics().avgMrr()));
+        String graphNdcg  = join(data.results(), r -> fmt(r.graphMetrics().avgNdcgAtK()));
+        String graphRec   = join(data.results(), r -> fmt(r.graphMetrics().avgRecallAtK()));
+        String llmRecall  = join(data.results(), r -> fmt(r.llmMetrics().avgRecall()));
+        String llmPrec    = join(data.results(), r -> fmt(r.llmMetrics().avgPrecision()));
+        String llmF1      = join(data.results(), r -> fmt(r.llmMetrics().avgF1()));
 
-        return """
-                <script>
-                  const ctx = document.getElementById('metricsChart').getContext('2d');
-                  new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                      labels: [""" + labels + """
-                ],
-                      datasets: [
-                        { label: 'Recall',     data: [""" + recalls + """
-                ], backgroundColor: 'rgba(54, 162, 235, 0.7)' },
-                        { label: 'Precision',  data: [""" + precisions + """
-                ], backgroundColor: 'rgba(255, 159, 64, 0.7)' },
-                        { label: 'F1',         data: [""" + f1s + """
-                ], backgroundColor: 'rgba(75, 192, 192, 0.7)' },
-                        { label: 'Hit-Rate',   data: [""" + hitRates + """
-                ], backgroundColor: 'rgba(153, 102, 255, 0.7)' },
-                        { label: 'MRR',        data: [""" + mrrs + """
-                ], backgroundColor: 'rgba(255, 99, 132, 0.7)' }
-                      ]
-                    },
-                    options: {
-                      responsive: true,
-                      scales: { y: { beginAtZero: true, max: 1.0 } }
-                    }
-                  });
-                </script>
-                """;
+        return "<script>\nnew Chart(document.getElementById('chart').getContext('2d'), {\n"
+                + "  type: 'bar',\n"
+                + "  data: {\n"
+                + "    labels: [" + labels + "],\n"
+                + "    datasets: [\n"
+                + ds("Graph MRR",      graphMrr,  "rgba(54,162,235,0.7)")
+                + ds("Graph NDCG@k",   graphNdcg, "rgba(54,162,235,0.4)")
+                + ds("Graph Recall@k", graphRec,  "rgba(54,162,235,0.2)")
+                + ds("LLM Recall",     llmRecall, "rgba(255,159,64,0.7)")
+                + ds("LLM Precision",  llmPrec,   "rgba(75,192,192,0.7)")
+                + ds("LLM F1",         llmF1,     "rgba(153,102,255,0.7)")
+                + "    ]\n  },\n"
+                + "  options: { responsive: true, scales: { y: { beginAtZero: true, max: 1.0 } } }\n"
+                + "});\n</script>\n";
     }
 
-    private String inlineCss() {
+    private String ds(String label, String data, String color) {
+        return "      { label: '" + label + "', data: [" + data + "], backgroundColor: '" + color + "' },\n";
+    }
+
+    private String join(List<AggregatedEvalResult> list,
+                        java.util.function.Function<AggregatedEvalResult, String> fn) {
+        return list.stream().map(fn).collect(Collectors.joining(", "));
+    }
+
+    private String fmt(double v) { return String.format("%.2f", v); }
+
+    private String css() {
         return """
                 <style>
                   body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem 2rem; background: #f9f9f9; color: #222; }
                   header { margin-bottom: 1.5rem; }
-                  h1 { margin: 0 0 0.25rem; }
-                  .timestamp { color: #666; margin: 0 0 1rem; }
-                  .config-grid { display: flex; gap: 1.5rem; flex-wrap: wrap; }
-                  .config-item { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 0.5rem 1rem; }
-                  .config-item span { display: block; font-size: 0.75rem; color: #888; }
-                  .config-item strong { font-size: 1rem; }
-                  .summary { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
-                  .card { flex: 1; min-width: 120px; border-radius: 8px; padding: 1rem 1.5rem; color: #fff; text-align: center; }
-                  .card .label { font-size: 0.85rem; opacity: 0.9; }
-                  .card .value { font-size: 2rem; font-weight: bold; }
-                  .card.green { background: #2e7d32; }
-                  .card.yellow { background: #f57f17; }
-                  .card.red { background: #c62828; }
-                  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; margin-bottom: 2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-                  th, td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid #eee; }
+                  h1 { margin: 0 0 .25rem; }
+                  .ts { color: #666; margin: 0 0 1rem; }
+                  .cfg { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+                  .ci { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .5rem 1rem; }
+                  .ci span { display: block; font-size: .75rem; color: #888; }
+                  .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+                  .card { flex: 1; min-width: 110px; border-radius: 8px; padding: .8rem 1rem; color: #fff; text-align: center; }
+                  .card .lbl { font-size: .8rem; opacity: .9; }
+                  .card .val { font-size: 1.8rem; font-weight: bold; }
+                  .green { background: #2e7d32; } .yellow { background: #f57f17; } .red { background: #c62828; }
+                  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+                  th, td { padding: .5rem .7rem; text-align: left; border-bottom: 1px solid #eee; }
                   thead { background: #333; color: #fff; }
-                  td.muted { color: #999; font-size: 0.85rem; }
-                  tr.good { background: #e8f5e9; }
-                  tr.warn { background: #fff8e1; }
-                  tr.bad  { background: #ffebee; }
-                  details { background: #fff; border: 1px solid #ddd; border-radius: 6px; margin-bottom: 0.75rem; }
-                  summary { padding: 0.6rem 1rem; cursor: pointer; }
-                  .detail-body { padding: 0.5rem 1rem 1rem; }
-                  .run-table { width: auto; box-shadow: none; margin-bottom: 0.5rem; }
-                  .run-table thead { background: #f0f0f0; }
-                  .run-table th { color: #333; }
-                  .chart-container { max-width: 900px; margin-bottom: 2rem; }
-                  h2 { margin-top: 2rem; }
-                  section { margin-bottom: 1rem; }
+                  td.m { color: #999; font-size: .85rem; }
+                  tr.good { background: #e8f5e9; } tr.warn { background: #fff8e1; } tr.bad { background: #ffebee; }
+                  details { background: #fff; border: 1px solid #ddd; border-radius: 6px; margin-bottom: .75rem; }
+                  summary { padding: .6rem 1rem; cursor: pointer; }
+                  .db { padding: .5rem 1rem 1rem; }
+                  table.dt { width: auto; box-shadow: none; margin-bottom: 1rem; }
+                  table.dt thead { background: #eee; }
+                  table.dt th { color: #333; }
+                  td.top { background: #c8e6c9; font-weight: bold; }
+                  td.not-found { color: #aaa; }
+                  pre.resp { background: #f5f5f5; border-left: 4px solid #ddd; padding: .75rem 1rem; white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
+                  .chart-wrap { max-width: 900px; margin-bottom: 2rem; }
+                  h2 { margin-top: 1.5rem; } h4 { margin: 1rem 0 .4rem; }
+                  section { margin-bottom: .5rem; }
                 </style>
                 """;
     }
 
-    private String configItem(String label, String value) {
-        return "<div class=\"config-item\"><span>" + escape(label) + "</span><strong>" + escape(value) + "</strong></div>\n";
+    private String cfgItem(String label, String value) {
+        return "<div class=\"ci\"><span>" + escape(label) + "</span><strong>" + escape(value) + "</strong></div>\n";
     }
 
-    private String metricCard(String label, double value) {
-        String cssClass = value >= 0.8 ? "green" : value >= 0.5 ? "yellow" : "red";
-        return String.format(
-                "<div class=\"card %s\"><div class=\"label\">%s</div><div class=\"value\">%.2f</div></div>%n",
-                cssClass, escape(label), value);
+    private String card(String label, double value) {
+        String cls = value >= 0.8 ? "green" : value >= 0.5 ? "yellow" : "red";
+        return String.format("<div class=\"card %s\"><div class=\"lbl\">%s</div><div class=\"val\">%.2f</div></div>%n",
+                cls, escape(label), value);
     }
 
-    private String rowClass(double f1) {
-        if (f1 >= 0.8) return "good";
-        if (f1 >= 0.5) return "warn";
-        return "bad";
-    }
-
-    private String statusEmoji(double f1) {
-        if (f1 >= 0.8) return "✅";
-        if (f1 >= 0.5) return "⚠️";
-        return "❌";
-    }
+    private String rc(double v) { return v >= 0.8 ? "good" : v >= 0.5 ? "warn" : "bad"; }
+    private String emoji(double v) { return v >= 0.8 ? "✅" : v >= 0.5 ? "⚠️" : "❌"; }
 
     private String joinList(List<String> list) {
         if (list == null || list.isEmpty()) return "—";
         return String.join(", ", list);
     }
 
-    private String escape(String text) {
-        if (text == null) return "";
-        return text.replace("&", "&amp;")
-                   .replace("<", "&lt;")
-                   .replace(">", "&gt;")
-                   .replace("\"", "&quot;");
+    private String escape(String t) {
+        if (t == null) return "";
+        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;");
     }
 }

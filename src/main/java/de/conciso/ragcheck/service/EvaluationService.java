@@ -2,16 +2,16 @@ package de.conciso.ragcheck.service;
 
 import de.conciso.ragcheck.api.LightRagClient;
 import de.conciso.ragcheck.model.AggregatedEvalResult;
-import de.conciso.ragcheck.model.EvalResult;
-import de.conciso.ragcheck.model.QueryResult;
+import de.conciso.ragcheck.model.GraphRetrievalRunResult;
+import de.conciso.ragcheck.model.LlmRunResult;
 import de.conciso.ragcheck.model.TestCase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.IntStream;
 
 @Service
 public class EvaluationService {
@@ -31,23 +31,39 @@ public class EvaluationService {
 
     public List<AggregatedEvalResult> evaluate(List<TestCase> testCases) {
         return testCases.stream().map(tc -> {
-            List<EvalResult> runs = IntStream.rangeClosed(1, runsPerTestCase)
-                    .mapToObj(i -> {
-                        log.info("Running [{}] ({}/{}) : {}", tc.id(), i, runsPerTestCase, tc.prompt());
-                        QueryResult queryResult = lightRagClient.query(tc.prompt());
-                        return EvalResult.of(tc, queryResult);
-                    })
-                    .toList();
+            List<GraphRetrievalRunResult> graphRuns = new ArrayList<>();
+            List<LlmRunResult> llmRuns = new ArrayList<>();
 
-            AggregatedEvalResult result = AggregatedEvalResult.of(tc, runs);
-            log.info("[{}] avgRecall={} avgPrecision={} avgF1={} hitRate={} mrr={}",
+            for (int i = 1; i <= runsPerTestCase; i++) {
+                log.info("Running [{}] ({}/{}) — Graph: {}", tc.id(), i, runsPerTestCase, tc.prompt());
+                List<String> orderedDocs = lightRagClient.queryData(tc.prompt());
+                graphRuns.add(GraphRetrievalRunResult.of(tc, orderedDocs));
+
+                log.info("Running [{}] ({}/{}) — LLM:   {}", tc.id(), i, runsPerTestCase, tc.prompt());
+                LightRagClient.LlmResponse llmResponse = lightRagClient.queryLlm(tc.prompt());
+                llmRuns.add(LlmRunResult.of(tc, llmResponse.referencedDocuments(), llmResponse.responseText()));
+            }
+
+            AggregatedEvalResult result = AggregatedEvalResult.of(tc, graphRuns, llmRuns);
+
+            log.info("[{}] Graph — MRR={} NDCG={} Recall@k={}",
                     result.testCaseId(),
-                    String.format("%.2f", result.avgRecall()),
-                    String.format("%.2f", result.avgPrecision()),
-                    String.format("%.2f", result.avgF1()),
-                    String.format("%.2f", result.hitRate()),
-                    String.format("%.2f", result.mrr()));
+                    fmt(result.graphMetrics().avgMrr()),
+                    fmt(result.graphMetrics().avgNdcgAtK()),
+                    fmt(result.graphMetrics().avgRecallAtK()));
+            log.info("[{}] LLM   — Recall={} Precision={} F1={} Hit={} MRR={}",
+                    result.testCaseId(),
+                    fmt(result.llmMetrics().avgRecall()),
+                    fmt(result.llmMetrics().avgPrecision()),
+                    fmt(result.llmMetrics().avgF1()),
+                    fmt(result.llmMetrics().hitRate()),
+                    fmt(result.llmMetrics().avgMrr()));
+
             return result;
         }).toList();
+    }
+
+    private String fmt(double v) {
+        return String.format("%.2f", v);
     }
 }

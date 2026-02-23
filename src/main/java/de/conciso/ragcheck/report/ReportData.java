@@ -12,20 +12,30 @@ public record ReportData(
         int runsPerTestCase,
         String testCasesPath,
         List<AggregatedEvalResult> results,
-        double avgRecall,
-        double avgPrecision,
-        double avgF1,
-        double avgHitRate,
-        double avgMrr
+        // Graph summary
+        double avgGraphMrr,
+        double avgGraphNdcgAtK,
+        double avgGraphRecallAtK,
+        // LLM summary
+        double avgLlmRecall,
+        double avgLlmPrecision,
+        double avgLlmF1,
+        double avgLlmHitRate,
+        double avgLlmMrr
 ) {
-    public static ReportData of(List<AggregatedEvalResult> results, String queryMode, int topK,
-                                int runsPerTestCase, String testCasesPath) {
-        double avgRecall    = results.stream().mapToDouble(AggregatedEvalResult::avgRecall).average().orElse(0.0);
-        double avgPrecision = results.stream().mapToDouble(AggregatedEvalResult::avgPrecision).average().orElse(0.0);
-        double avgF1        = results.stream().mapToDouble(AggregatedEvalResult::avgF1).average().orElse(0.0);
-        double avgHitRate   = results.stream().mapToDouble(AggregatedEvalResult::hitRate).average().orElse(0.0);
-        double avgMrr       = results.stream().mapToDouble(AggregatedEvalResult::mrr).average().orElse(0.0);
-        return new ReportData(Instant.now(), queryMode, topK, runsPerTestCase, testCasesPath,
-                results, avgRecall, avgPrecision, avgF1, avgHitRate, avgMrr);
+    public static ReportData of(List<AggregatedEvalResult> results, String queryMode,
+                                int topK, int runsPerTestCase, String testCasesPath) {
+        double avgGraphMrr      = results.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).average().orElse(0.0);
+        double avgGraphNdcg     = results.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).average().orElse(0.0);
+        double avgGraphRecall   = results.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).average().orElse(0.0);
+        double avgLlmRecall     = results.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).average().orElse(0.0);
+        double avgLlmPrecision  = results.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).average().orElse(0.0);
+        double avgLlmF1         = results.stream().mapToDouble(r -> r.llmMetrics().avgF1()).average().orElse(0.0);
+        double avgLlmHitRate    = results.stream().mapToDouble(r -> r.llmMetrics().hitRate()).average().orElse(0.0);
+        double avgLlmMrr        = results.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).average().orElse(0.0);
+
+        return new ReportData(Instant.now(), queryMode, topK, runsPerTestCase, testCasesPath, results,
+                avgGraphMrr, avgGraphNdcg, avgGraphRecall,
+                avgLlmRecall, avgLlmPrecision, avgLlmF1, avgLlmHitRate, avgLlmMrr);
     }
 }
