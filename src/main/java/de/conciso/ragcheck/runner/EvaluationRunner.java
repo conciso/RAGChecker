@@ -10,12 +10,14 @@ import de.conciso.ragcheck.service.TestCaseLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
 
 @Component
+@ConditionalOnProperty(name = "ragchecker.mode", havingValue = "evaluate", matchIfMissing = true)
 public class EvaluationRunner implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(EvaluationRunner.class);

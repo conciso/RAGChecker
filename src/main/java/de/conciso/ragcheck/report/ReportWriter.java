@@ -11,7 +11,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ReportWriter {
@@ -24,6 +26,8 @@ public class ReportWriter {
     private final int topK;
     private final int runsPerTestCase;
     private final String testCasesPath;
+    private final String runLabel;
+    private final String runParametersRaw;
 
     private final JsonReportWriter jsonReportWriter;
     private final MarkdownReportWriter markdownReportWriter;
@@ -35,6 +39,8 @@ public class ReportWriter {
             @Value("${ragchecker.query.top-k}") int topK,
             @Value("${ragchecker.runs.per-testcase:1}") int runsPerTestCase,
             @Value("${ragchecker.testcases.path}") String testCasesPath,
+            @Value("${ragchecker.run.label:}") String runLabel,
+            @Value("${ragchecker.run.parameters:}") String runParametersRaw,
             JsonReportWriter jsonReportWriter,
             MarkdownReportWriter markdownReportWriter,
             HtmlReportWriter htmlReportWriter
@@ -44,13 +50,17 @@ public class ReportWriter {
         this.topK = topK;
         this.runsPerTestCase = runsPerTestCase;
         this.testCasesPath = testCasesPath;
+        this.runLabel = runLabel;
+        this.runParametersRaw = runParametersRaw;
         this.jsonReportWriter = jsonReportWriter;
         this.markdownReportWriter = markdownReportWriter;
         this.htmlReportWriter = htmlReportWriter;
     }
 
     public void write(List<AggregatedEvalResult> results) {
-        ReportData data = ReportData.of(results, queryMode, topK, runsPerTestCase, testCasesPath);
+        Map<String, String> runParameters = parseParameters(runParametersRaw);
+        ReportData data = ReportData.of(results, runLabel, runParameters,
+                queryMode, topK, runsPerTestCase, testCasesPath);
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
         String baseName = "ragcheck_" + timestamp;
 
@@ -73,5 +83,17 @@ public class ReportWriter {
         } catch (IOException e) {
             log.error("Failed to write reports", e);
         }
+    }
+
+    private Map<String, String> parseParameters(String raw) {
+        Map<String, String> map = new LinkedHashMap<>();
+        if (raw == null || raw.isBlank()) return map;
+        for (String pair : raw.split(",")) {
+            String[] kv = pair.split("=", 2);
+            if (kv.length == 2) {
+                map.put(kv[0].trim(), kv[1].trim());
+            }
+        }
+        return map;
     }
 }

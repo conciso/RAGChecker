@@ -28,6 +28,8 @@ public class JsonReportWriter {
         json.put("timestamp", data.timestamp().toString());
 
         Map<String, Object> config = new LinkedHashMap<>();
+        config.put("runLabel", data.runLabel());
+        config.put("runParameters", data.runParameters());
         config.put("queryMode", data.queryMode());
         config.put("topK", data.topK());
         config.put("runsPerTestCase", data.runsPerTestCase());

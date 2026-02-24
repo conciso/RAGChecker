@@ -29,6 +29,13 @@ public class MarkdownReportWriter {
         // Konfiguration
         sb.append("## Konfiguration\n\n");
         sb.append("| Parameter | Wert |\n|---|---|\n");
+        if (data.runLabel() != null && !data.runLabel().isBlank()) {
+            sb.append("| Run-Label | ").append(data.runLabel()).append(" |\n");
+        }
+        if (data.runParameters() != null && !data.runParameters().isEmpty()) {
+            data.runParameters().forEach((k, v) ->
+                    sb.append("| ").append(k).append(" | ").append(v).append(" |\n"));
+        }
         sb.append("| Query Mode | ").append(data.queryMode()).append(" |\n");
         sb.append("| Top-K | ").append(data.topK()).append(" |\n");
         sb.append("| Läufe je Testfall | ").append(data.runsPerTestCase()).append(" |\n");
