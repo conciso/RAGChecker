@@ -40,7 +40,7 @@ public class LightRagClient {
     ) {
         RestClient.Builder builder = RestClient.builder().baseUrl(baseUrl);
         if (apiKey != null && !apiKey.isBlank()) {
-            builder.defaultHeader("Authorization", "Bearer " + apiKey);
+            builder.defaultHeader("X-API-Key", apiKey);
         }
         this.restClient = builder.build();
         this.queryMode = queryMode;
