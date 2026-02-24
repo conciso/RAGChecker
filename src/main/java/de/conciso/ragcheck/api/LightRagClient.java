@@ -23,9 +23,9 @@ public class LightRagClient {
 
     private static final Logger log = LoggerFactory.getLogger(LightRagClient.class);
 
-    // Matches "[N] some filename.pdf" at end of line
+    // Matches "[N] some filename.pdf", optionally preceded by a markdown list marker ("* " or "- ")
     private static final Pattern REFERENCE_PATTERN =
-            Pattern.compile("^\\[(\\d+)]\\s*(.+?)\\s*$", Pattern.MULTILINE);
+            Pattern.compile("^[-*]?\\s*\\[(\\d+)]\\s*(.+?)\\s*$", Pattern.MULTILINE);
 
     private final RestClient restClient;
     private final String queryMode;
