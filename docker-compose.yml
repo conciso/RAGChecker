@@ -1,10 +1,10 @@
 services:
-  ragcheck:
+  ragchecker:
     build: .
     env_file: .env
     volumes:
       - ./testcases:/app/testcases:ro
-      - ./logs:/app/logs
+      - ./reports:/app/reports
     networks:
       - aibox_network
 
