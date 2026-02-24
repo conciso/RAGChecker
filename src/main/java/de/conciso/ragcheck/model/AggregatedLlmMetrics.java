@@ -7,7 +7,8 @@ public record AggregatedLlmMetrics(
         double avgPrecision, double stdDevPrecision,
         double avgF1,        double stdDevF1,
         double hitRate,
-        double avgMrr,       double stdDevMrr
+        double avgMrr,       double stdDevMrr,
+        double avgDurationMs
 ) {
     public static AggregatedLlmMetrics of(List<LlmRunResult> runs) {
         double[] recalls    = runs.stream().mapToDouble(LlmRunResult::recall).toArray();
@@ -15,13 +16,15 @@ public record AggregatedLlmMetrics(
         double[] f1s        = runs.stream().mapToDouble(LlmRunResult::f1).toArray();
         double[] hits       = runs.stream().mapToDouble(r -> r.hit() ? 1.0 : 0.0).toArray();
         double[] mrrs       = runs.stream().mapToDouble(LlmRunResult::mrr).toArray();
+        double[] durations  = runs.stream().mapToDouble(LlmRunResult::durationMs).toArray();
 
         return new AggregatedLlmMetrics(
                 mean(recalls),    stdDev(recalls),
                 mean(precisions), stdDev(precisions),
                 mean(f1s),        stdDev(f1s),
                 mean(hits),
-                mean(mrrs),       stdDev(mrrs)
+                mean(mrrs),       stdDev(mrrs),
+                mean(durations)
         );
     }
 

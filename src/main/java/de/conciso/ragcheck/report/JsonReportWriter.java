@@ -41,6 +41,8 @@ public class JsonReportWriter {
         graphSummary.put("avgMrr", r(data.avgGraphMrr()));
         graphSummary.put("avgNdcgAtK", r(data.avgGraphNdcgAtK()));
         graphSummary.put("avgRecallAtK", r(data.avgGraphRecallAtK()));
+        graphSummary.put("avgDurationMs", Math.round(data.results().stream()
+                .mapToDouble(res -> res.graphMetrics().avgDurationMs()).average().orElse(0)));
         summary.put("graph", graphSummary);
 
         Map<String, Object> llmSummary = new LinkedHashMap<>();
@@ -49,6 +51,8 @@ public class JsonReportWriter {
         llmSummary.put("avgF1", r(data.avgLlmF1()));
         llmSummary.put("avgHitRate", r(data.avgLlmHitRate()));
         llmSummary.put("avgMrr", r(data.avgLlmMrr()));
+        llmSummary.put("avgDurationMs", Math.round(data.results().stream()
+                .mapToDouble(res -> res.llmMetrics().avgDurationMs()).average().orElse(0)));
         summary.put("llm", llmSummary);
         summary.put("totalTestCases", data.results().size());
         json.put("summary", summary);
@@ -73,6 +77,7 @@ public class JsonReportWriter {
         graph.put("stdDevNdcgAtK", r(r.graphMetrics().stdDevNdcgAtK()));
         graph.put("avgRecallAtK", r(r.graphMetrics().avgRecallAtK()));
         graph.put("stdDevRecallAtK", r(r.graphMetrics().stdDevRecallAtK()));
+        graph.put("avgDurationMs", Math.round(r.graphMetrics().avgDurationMs()));
         graph.put("ranksByDoc", r.graphMetrics().ranksByDoc());
         graph.put("runs", r.graphRuns().stream().map(this::graphRunToMap).toList());
         entry.put("graph", graph);
@@ -87,6 +92,7 @@ public class JsonReportWriter {
         llm.put("hitRate", r(r.llmMetrics().hitRate()));
         llm.put("avgMrr", r(r.llmMetrics().avgMrr()));
         llm.put("stdDevMrr", r(r.llmMetrics().stdDevMrr()));
+        llm.put("avgDurationMs", Math.round(r.llmMetrics().avgDurationMs()));
         llm.put("runs", r.llmRuns().stream().map(this::llmRunToMap).toList());
         entry.put("llm", llm);
 
@@ -100,6 +106,7 @@ public class JsonReportWriter {
         m.put("mrr", r(run.mrr()));
         m.put("ndcgAtK", r(run.ndcgAtK()));
         m.put("recallAtK", r(run.recallAtK()));
+        m.put("durationMs", run.durationMs());
         return m;
     }
 
@@ -111,6 +118,7 @@ public class JsonReportWriter {
         m.put("f1", r(run.f1()));
         m.put("hit", run.hit());
         m.put("mrr", r(run.mrr()));
+        m.put("durationMs", run.durationMs());
         m.put("responseText", run.responseText());
         return m;
     }

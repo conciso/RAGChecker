@@ -118,8 +118,8 @@ public class EvaluationRunner implements CommandLineRunner {
                 // Graph
                 GraphRetrievalRunResult g = r.graphRuns().get(i);
                 System.out.println("  [Graph]");
-                System.out.printf("    MRR=%.2f  NDCG@k=%.2f  Recall@k=%.2f%n",
-                        g.mrr(), g.ndcgAtK(), g.recallAtK());
+                System.out.printf("    MRR=%.2f  NDCG@k=%.2f  Recall@k=%.2f  Dauer=%dms%n",
+                        g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs());
                 System.out.println("    Ränge:");
                 for (Map.Entry<String, Integer> e : g.expectedDocumentRanks().entrySet()) {
                     System.out.printf("      %-40s → Rang %d%n", e.getKey(), e.getValue());
@@ -134,8 +134,8 @@ public class EvaluationRunner implements CommandLineRunner {
                 // LLM
                 LlmRunResult l = r.llmRuns().get(i);
                 System.out.println("  [LLM]");
-                System.out.printf("    Recall=%.2f  Precision=%.2f  F1=%.2f  Hit=%s  MRR=%.2f%n",
-                        l.recall(), l.precision(), l.f1(), l.hit() ? "✓" : "✗", l.mrr());
+                System.out.printf("    Recall=%.2f  Precision=%.2f  F1=%.2f  Hit=%s  MRR=%.2f  Dauer=%dms%n",
+                        l.recall(), l.precision(), l.f1(), l.hit() ? "✓" : "✗", l.mrr(), l.durationMs());
                 System.out.println("    Gefunden: " +
                         (l.retrievedDocuments().isEmpty() ? "(keine)" : String.join(", ", l.retrievedDocuments())));
                 System.out.println("    LLM-Antwort:");
@@ -149,16 +149,18 @@ public class EvaluationRunner implements CommandLineRunner {
                 System.out.println(thin);
             }
 
-            System.out.printf("  Aggregiert Graph: MRR=%.2f(±%.2f)  NDCG=%.2f(±%.2f)  Recall@k=%.2f(±%.2f)%n",
+            System.out.printf("  Aggregiert Graph: MRR=%.2f(±%.2f)  NDCG=%.2f(±%.2f)  Recall@k=%.2f(±%.2f)  ØDauer=%dms%n",
                     r.graphMetrics().avgMrr(), r.graphMetrics().stdDevMrr(),
                     r.graphMetrics().avgNdcgAtK(), r.graphMetrics().stdDevNdcgAtK(),
-                    r.graphMetrics().avgRecallAtK(), r.graphMetrics().stdDevRecallAtK());
-            System.out.printf("  Aggregiert LLM  : Recall=%.2f(±%.2f)  Prec=%.2f(±%.2f)  F1=%.2f(±%.2f)  Hit=%.2f  MRR=%.2f(±%.2f)%n",
+                    r.graphMetrics().avgRecallAtK(), r.graphMetrics().stdDevRecallAtK(),
+                    Math.round(r.graphMetrics().avgDurationMs()));
+            System.out.printf("  Aggregiert LLM  : Recall=%.2f(±%.2f)  Prec=%.2f(±%.2f)  F1=%.2f(±%.2f)  Hit=%.2f  MRR=%.2f(±%.2f)  ØDauer=%dms%n",
                     r.llmMetrics().avgRecall(), r.llmMetrics().stdDevRecall(),
                     r.llmMetrics().avgPrecision(), r.llmMetrics().stdDevPrecision(),
                     r.llmMetrics().avgF1(), r.llmMetrics().stdDevF1(),
                     r.llmMetrics().hitRate(),
-                    r.llmMetrics().avgMrr(), r.llmMetrics().stdDevMrr());
+                    r.llmMetrics().avgMrr(), r.llmMetrics().stdDevMrr(),
+                    Math.round(r.llmMetrics().avgDurationMs()));
         }
         System.out.println();
         System.out.println(thick);

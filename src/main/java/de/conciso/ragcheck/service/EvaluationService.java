@@ -36,28 +36,36 @@ public class EvaluationService {
 
             for (int i = 1; i <= runsPerTestCase; i++) {
                 log.info("Running [{}] ({}/{}) — Graph: {}", tc.id(), i, runsPerTestCase, tc.prompt());
+                long graphStart = System.currentTimeMillis();
                 List<String> orderedDocs = lightRagClient.queryData(tc.prompt());
-                graphRuns.add(GraphRetrievalRunResult.of(tc, orderedDocs));
+                long graphDuration = System.currentTimeMillis() - graphStart;
+                graphRuns.add(GraphRetrievalRunResult.of(tc, orderedDocs, graphDuration));
+                log.info("Running [{}] ({}/{}) — Graph fertig in {}ms", tc.id(), i, runsPerTestCase, graphDuration);
 
                 log.info("Running [{}] ({}/{}) — LLM:   {}", tc.id(), i, runsPerTestCase, tc.prompt());
+                long llmStart = System.currentTimeMillis();
                 LightRagClient.LlmResponse llmResponse = lightRagClient.queryLlm(tc.prompt());
-                llmRuns.add(LlmRunResult.of(tc, llmResponse.referencedDocuments(), llmResponse.responseText()));
+                long llmDuration = System.currentTimeMillis() - llmStart;
+                llmRuns.add(LlmRunResult.of(tc, llmResponse.referencedDocuments(), llmResponse.responseText(), llmDuration));
+                log.info("Running [{}] ({}/{}) — LLM fertig in {}ms", tc.id(), i, runsPerTestCase, llmDuration);
             }
 
             AggregatedEvalResult result = AggregatedEvalResult.of(tc, graphRuns, llmRuns);
 
-            log.info("[{}] Graph — MRR={} NDCG={} Recall@k={}",
+            log.info("[{}] Graph — MRR={} NDCG={} Recall@k={} ØDauer={}ms",
                     result.testCaseId(),
                     fmt(result.graphMetrics().avgMrr()),
                     fmt(result.graphMetrics().avgNdcgAtK()),
-                    fmt(result.graphMetrics().avgRecallAtK()));
-            log.info("[{}] LLM   — Recall={} Precision={} F1={} Hit={} MRR={}",
+                    fmt(result.graphMetrics().avgRecallAtK()),
+                    Math.round(result.graphMetrics().avgDurationMs()));
+            log.info("[{}] LLM   — Recall={} Precision={} F1={} Hit={} MRR={} ØDauer={}ms",
                     result.testCaseId(),
                     fmt(result.llmMetrics().avgRecall()),
                     fmt(result.llmMetrics().avgPrecision()),
                     fmt(result.llmMetrics().avgF1()),
                     fmt(result.llmMetrics().hitRate()),
-                    fmt(result.llmMetrics().avgMrr()));
+                    fmt(result.llmMetrics().avgMrr()),
+                    Math.round(result.llmMetrics().avgDurationMs()));
 
             return result;
         }).toList();

@@ -5,16 +5,18 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 public record AggregatedGraphMetrics(
-        double avgMrr,       double stdDevMrr,
-        double avgNdcgAtK,   double stdDevNdcgAtK,
-        double avgRecallAtK, double stdDevRecallAtK,
+        double avgMrr,        double stdDevMrr,
+        double avgNdcgAtK,    double stdDevNdcgAtK,
+        double avgRecallAtK,  double stdDevRecallAtK,
+        double avgDurationMs,
         Map<String, List<Integer>> ranksByDoc
 ) {
     public static AggregatedGraphMetrics of(List<String> expectedDocs,
                                             List<GraphRetrievalRunResult> runs) {
-        double[] mrrs    = runs.stream().mapToDouble(GraphRetrievalRunResult::mrr).toArray();
-        double[] ndcgs   = runs.stream().mapToDouble(GraphRetrievalRunResult::ndcgAtK).toArray();
-        double[] recalls = runs.stream().mapToDouble(GraphRetrievalRunResult::recallAtK).toArray();
+        double[] mrrs      = runs.stream().mapToDouble(GraphRetrievalRunResult::mrr).toArray();
+        double[] ndcgs     = runs.stream().mapToDouble(GraphRetrievalRunResult::ndcgAtK).toArray();
+        double[] recalls   = runs.stream().mapToDouble(GraphRetrievalRunResult::recallAtK).toArray();
+        double[] durations = runs.stream().mapToDouble(GraphRetrievalRunResult::durationMs).toArray();
 
         Map<String, List<Integer>> ranksByDoc = expectedDocs.stream().collect(
                 Collectors.toMap(
@@ -29,6 +31,7 @@ public record AggregatedGraphMetrics(
                 mean(mrrs),    stdDev(mrrs),
                 mean(ndcgs),   stdDev(ndcgs),
                 mean(recalls), stdDev(recalls),
+                mean(durations),
                 ranksByDoc
         );
     }

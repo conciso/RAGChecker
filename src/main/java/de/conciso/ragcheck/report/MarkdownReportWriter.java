@@ -109,23 +109,24 @@ public class MarkdownReportWriter {
             sb.append("\n");
 
             sb.append("#### Graph-Retrieval — Läufe\n\n");
-            sb.append("| Lauf | MRR | NDCG@k | Recall@k | Gefunden (Top 5) |\n|---|---|---|---|---|\n");
+            sb.append("| Lauf | MRR | NDCG@k | Recall@k | Dauer (ms) | Gefunden (Top 5) |\n|---|---|---|---|---|---|\n");
             for (int i = 0; i < r.graphRuns().size(); i++) {
                 GraphRetrievalRunResult g = r.graphRuns().get(i);
                 String top5 = g.retrievedDocuments().stream().limit(5)
                         .reduce((a, b) -> a + ", " + b).orElse("—");
-                sb.append(String.format("| %d | %.2f | %.2f | %.2f | %s |%n",
-                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), top5));
+                sb.append(String.format("| %d | %.2f | %.2f | %.2f | %d | %s |%n",
+                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs(), top5));
             }
             sb.append("\n");
 
             sb.append("#### LLM — Läufe\n\n");
-            sb.append("| Lauf | Recall | Precision | F1 | Hit | Gefunden |\n|---|---|---|---|---|---|\n");
+            sb.append("| Lauf | Recall | Precision | F1 | Hit | Dauer (ms) | Gefunden |\n|---|---|---|---|---|---|---|\n");
             for (int i = 0; i < r.llmRuns().size(); i++) {
                 LlmRunResult l = r.llmRuns().get(i);
-                sb.append(String.format("| %d | %.2f | %.2f | %.2f | %s | %s |%n",
+                sb.append(String.format("| %d | %.2f | %.2f | %.2f | %s | %d | %s |%n",
                         i + 1, l.recall(), l.precision(), l.f1(),
                         l.hit() ? "✓" : "✗",
+                        l.durationMs(),
                         joinList(l.retrievedDocuments())));
             }
             sb.append("\n");

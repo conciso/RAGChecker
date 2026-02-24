@@ -9,9 +9,11 @@ public record LlmRunResult(
         double precision,
         double f1,
         boolean hit,
-        double mrr
+        double mrr,
+        long durationMs
 ) {
-    public static LlmRunResult of(TestCase tc, List<String> referencedDocuments, String responseText) {
+    public static LlmRunResult of(TestCase tc, List<String> referencedDocuments,
+                                  String responseText, long durationMs) {
         List<String> expected  = tc.expectedDocuments();
         List<String> retrieved = referencedDocuments;
 
@@ -28,7 +30,7 @@ public record LlmRunResult(
         boolean hit      = hits > 0;
         double mrr       = computeMrr(expected, retrieved);
 
-        return new LlmRunResult(retrieved, responseText, recall, precision, f1, hit, mrr);
+        return new LlmRunResult(retrieved, responseText, recall, precision, f1, hit, mrr, durationMs);
     }
 
     private static double computeMrr(List<String> expected, List<String> retrieved) {
