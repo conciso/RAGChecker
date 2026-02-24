@@ -86,7 +86,11 @@ public class ComparisonRunner implements CommandLineRunner {
     private List<Path> findReportFiles(Path dir) throws IOException {
         try (var stream = Files.list(dir)) {
             return stream
-                    .filter(p -> p.getFileName().toString().matches("ragcheck_\\d{8}_\\d{6}\\.json"))
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        return name.startsWith("ragcheck_") && name.endsWith(".json")
+                                && !name.equals("comparison.json");
+                    })
                     .sorted()
                     .toList();
         }
