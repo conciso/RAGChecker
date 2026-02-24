@@ -10,6 +10,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
+import java.util.stream.Collectors;
 
 /**
  * Erzeugt einen Vergleichsreport über mehrere ragcheck-Testläufe.
@@ -33,7 +34,16 @@ public class ComparisonReportWriter {
             double avgLlmPrecision,
             double avgLlmF1,
             double avgLlmHitRate,
-            double avgLlmMrr
+            double avgLlmMrr,
+            // Per-Testfall-Werte für Boxplots
+            List<Double> tcGraphMrr,
+            List<Double> tcGraphNdcg,
+            List<Double> tcGraphRecall,
+            List<Double> tcLlmRecall,
+            List<Double> tcLlmPrecision,
+            List<Double> tcLlmF1,
+            List<Double> tcLlmHitRate,
+            List<Double> tcLlmMrr
     ) {}
 
     public void write(List<ComparisonEntry> entries, Path outputDir) throws IOException {
@@ -57,7 +67,6 @@ public class ComparisonReportWriter {
         sb.append("# RAGChecker — Parametervergleich\n\n");
         sb.append("Sortiert nach Ø LLM-F1 (absteigend). Bester Wert je Spalte mit **★** markiert.\n\n");
 
-        // Beste Werte ermitteln
         double bestGraphMrr      = best(entries, ComparisonEntry::avgGraphMrr);
         double bestGraphNdcg     = best(entries, ComparisonEntry::avgGraphNdcgAtK);
         double bestGraphRecall   = best(entries, ComparisonEntry::avgGraphRecallAtK);
@@ -126,7 +135,6 @@ public class ComparisonReportWriter {
     }
 
     private String buildHtml(List<ComparisonEntry> entries) {
-        // Beste Werte für Spalten-Highlighting
         double bestGraphMrr      = best(entries, ComparisonEntry::avgGraphMrr);
         double bestGraphNdcg     = best(entries, ComparisonEntry::avgGraphNdcgAtK);
         double bestGraphRecall   = best(entries, ComparisonEntry::avgGraphRecallAtK);
@@ -143,6 +151,8 @@ public class ComparisonReportWriter {
                 <head>
                 <meta charset="UTF-8">
                 <title>RAGChecker — Parametervergleich</title>
+                <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+                <script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4"></script>
                 <style>
                   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
                          margin: 2rem; background: #f8f9fa; color: #212529; }
@@ -172,6 +182,11 @@ public class ComparisonReportWriter {
                                  padding: 1.2rem 1.5rem; margin-bottom: 2rem; max-width: 600px; }
                   .summary-box h3 { margin: 0 0 .5rem; color: #1a1a2e; }
                   .summary-box p  { margin: .2rem 0; }
+                  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+                  .chart-wrap { background: #fff; border-radius: 6px; padding: 1rem;
+                                box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+                  .chart-wrap h3 { margin: 0 0 .75rem; font-size: .95rem; color: #1a1a2e; }
+                  @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
                 </style>
                 </head>
                 <body>
@@ -197,6 +212,17 @@ public class ComparisonReportWriter {
             sb.append("</div>\n");
         }
 
+        // Boxplot section
+        if (entries.stream().anyMatch(e -> !e.tcLlmF1().isEmpty())) {
+            sb.append("<h2>Verteilung über Testfälle (Boxplots)</h2>\n");
+            sb.append("<p style=\"color:#6c757d;margin-bottom:1.5rem\">Jede Box zeigt die Verteilung der Metrikwerte über alle Testfälle für einen Parametersatz.</p>\n");
+            sb.append("<div class=\"chart-grid\">\n");
+            sb.append("<div class=\"chart-wrap\"><h3>Graph-Retrieval</h3><canvas id=\"bpGraph\"></canvas></div>\n");
+            sb.append("<div class=\"chart-wrap\"><h3>LLM</h3><canvas id=\"bpLlm\"></canvas></div>\n");
+            sb.append("</div>\n");
+        }
+
+        // Tables
         sb.append("<h2>Graph-Retrieval</h2>\n");
         sb.append("<table id=\"graphTable\">\n<thead><tr>\n");
         for (String h : List.of("#", "Timestamp", "Label", "Parameter", "Mode", "Top-K",
@@ -245,7 +271,98 @@ public class ComparisonReportWriter {
         }
         sb.append("</tbody></table>\n");
 
+        // Scripts
+        sb.append(buildBoxplotScript(entries));
+        sb.append(buildSortScript());
+        sb.append("</body></html>\n");
+
+        return sb.toString();
+    }
+
+    private String buildBoxplotScript(List<ComparisonEntry> entries) {
+        if (entries.stream().allMatch(e -> e.tcLlmF1().isEmpty())) return "";
+
+        // Run-Labels für X-Achse
+        String runLabels = entries.stream()
+                .map(e -> "\"" + esc(e.runLabel().isBlank() ? e.timestamp() : e.runLabel()) + "\"")
+                .collect(Collectors.joining(", "));
+
+        // Helper: Daten für ein Dataset als JS-Array-von-Arrays
+        // Für jeden Run: [val_tc1, val_tc2, ...]
+        StringBuilder sb = new StringBuilder();
+        sb.append("<script>\n");
+        sb.append("(function() {\n");
+        sb.append("const runLabels = [").append(runLabels).append("];\n\n");
+
+        // Graph-Boxplot-Daten
+        appendDataset(sb, "graphMrrData",    entries, ComparisonEntry::tcGraphMrr);
+        appendDataset(sb, "graphNdcgData",   entries, ComparisonEntry::tcGraphNdcg);
+        appendDataset(sb, "graphRecallData", entries, ComparisonEntry::tcGraphRecall);
+
+        // LLM-Boxplot-Daten
+        appendDataset(sb, "llmRecallData",    entries, ComparisonEntry::tcLlmRecall);
+        appendDataset(sb, "llmPrecisionData", entries, ComparisonEntry::tcLlmPrecision);
+        appendDataset(sb, "llmF1Data",        entries, ComparisonEntry::tcLlmF1);
+        appendDataset(sb, "llmHitData",       entries, ComparisonEntry::tcLlmHitRate);
+        appendDataset(sb, "llmMrrData",       entries, ComparisonEntry::tcLlmMrr);
+
         sb.append("""
+                const bpOpts = {
+                  responsive: true,
+                  scales: {
+                    y: { beginAtZero: true, max: 1.0, ticks: { stepSize: 0.2 } }
+                  },
+                  plugins: { legend: { position: 'bottom' } }
+                };
+
+                new Chart(document.getElementById('bpGraph'), {
+                  type: 'boxplot',
+                  data: {
+                    labels: runLabels,
+                    datasets: [
+                      { label: 'MRR',      data: graphMrrData,    backgroundColor: 'rgba(54,162,235,0.5)', borderColor: 'rgba(54,162,235,1)' },
+                      { label: 'NDCG@k',   data: graphNdcgData,   backgroundColor: 'rgba(54,162,235,0.3)', borderColor: 'rgba(54,162,235,.7)' },
+                      { label: 'Recall@k', data: graphRecallData,  backgroundColor: 'rgba(54,162,235,0.15)',borderColor: 'rgba(54,162,235,.5)' }
+                    ]
+                  },
+                  options: bpOpts
+                });
+
+                new Chart(document.getElementById('bpLlm'), {
+                  type: 'boxplot',
+                  data: {
+                    labels: runLabels,
+                    datasets: [
+                      { label: 'Recall',    data: llmRecallData,    backgroundColor: 'rgba(255,159,64,0.5)', borderColor: 'rgba(255,159,64,1)' },
+                      { label: 'Precision', data: llmPrecisionData, backgroundColor: 'rgba(75,192,192,0.5)', borderColor: 'rgba(75,192,192,1)' },
+                      { label: 'F1',        data: llmF1Data,        backgroundColor: 'rgba(153,102,255,0.5)',borderColor: 'rgba(153,102,255,1)' },
+                      { label: 'Hit-Rate',  data: llmHitData,       backgroundColor: 'rgba(255,99,132,0.3)', borderColor: 'rgba(255,99,132,.7)' },
+                      { label: 'MRR',       data: llmMrrData,       backgroundColor: 'rgba(255,206,86,0.5)', borderColor: 'rgba(255,206,86,1)' }
+                    ]
+                  },
+                  options: bpOpts
+                });
+                })();
+                </script>
+                """);
+
+        return sb.toString();
+    }
+
+    private void appendDataset(StringBuilder sb, String varName,
+                                List<ComparisonEntry> entries,
+                                java.util.function.Function<ComparisonEntry, List<Double>> extractor) {
+        sb.append("const ").append(varName).append(" = [\n");
+        for (ComparisonEntry e : entries) {
+            List<Double> vals = extractor.apply(e);
+            String arr = vals.stream().map(v -> String.format("%.4f", v)).collect(Collectors.joining(", "));
+            sb.append("  [").append(arr).append("],\n");
+        }
+        sb.append("];\n");
+    }
+
+    private String buildSortScript() {
+        return """
                 <script>
                 document.querySelectorAll('table').forEach(table => {
                   table.querySelectorAll('th').forEach((th, colIdx) => {
@@ -269,10 +386,7 @@ public class ComparisonReportWriter {
                   });
                 });
                 </script>
-                </body></html>
-                """);
-
-        return sb.toString();
+                """;
     }
 
     // -------------------------------------------------------------------------

@@ -110,6 +110,31 @@ public class ComparisonRunner implements CommandLineRunner {
         Map<String, Object> graph   = (Map<String, Object>) summary.getOrDefault("graph", Map.of());
         Map<String, Object> llm     = (Map<String, Object>) summary.getOrDefault("llm", Map.of());
 
+        // Per-Testfall-Daten für Boxplots
+        List<Object> results = (List<Object>) root.getOrDefault("results", List.of());
+        List<Double> tcGraphMrr     = new ArrayList<>();
+        List<Double> tcGraphNdcg    = new ArrayList<>();
+        List<Double> tcGraphRecall  = new ArrayList<>();
+        List<Double> tcLlmRecall    = new ArrayList<>();
+        List<Double> tcLlmPrecision = new ArrayList<>();
+        List<Double> tcLlmF1        = new ArrayList<>();
+        List<Double> tcLlmHitRate   = new ArrayList<>();
+        List<Double> tcLlmMrr       = new ArrayList<>();
+
+        for (Object r : results) {
+            Map<String, Object> resultMap = (Map<String, Object>) r;
+            Map<String, Object> g = (Map<String, Object>) resultMap.getOrDefault("graph", Map.of());
+            Map<String, Object> l = (Map<String, Object>) resultMap.getOrDefault("llm", Map.of());
+            tcGraphMrr.add(toDouble(g.getOrDefault("avgMrr", 0.0)));
+            tcGraphNdcg.add(toDouble(g.getOrDefault("avgNdcgAtK", 0.0)));
+            tcGraphRecall.add(toDouble(g.getOrDefault("avgRecallAtK", 0.0)));
+            tcLlmRecall.add(toDouble(l.getOrDefault("avgRecall", 0.0)));
+            tcLlmPrecision.add(toDouble(l.getOrDefault("avgPrecision", 0.0)));
+            tcLlmF1.add(toDouble(l.getOrDefault("avgF1", 0.0)));
+            tcLlmHitRate.add(toDouble(l.getOrDefault("hitRate", 0.0)));
+            tcLlmMrr.add(toDouble(l.getOrDefault("avgMrr", 0.0)));
+        }
+
         return new ComparisonEntry(
                 timestamp,
                 runLabel != null ? runLabel : "",
@@ -124,7 +149,9 @@ public class ComparisonRunner implements CommandLineRunner {
                 toDouble(llm.getOrDefault("avgPrecision", 0.0)),
                 toDouble(llm.getOrDefault("avgF1", 0.0)),
                 toDouble(llm.getOrDefault("avgHitRate", 0.0)),
-                toDouble(llm.getOrDefault("avgMrr", 0.0))
+                toDouble(llm.getOrDefault("avgMrr", 0.0)),
+                tcGraphMrr, tcGraphNdcg, tcGraphRecall,
+                tcLlmRecall, tcLlmPrecision, tcLlmF1, tcLlmHitRate, tcLlmMrr
         );
     }
 

@@ -131,24 +131,24 @@ public class HtmlReportWriter {
 
             // Graph runs
             sb.append("<h4>Graph-Retrieval — Läufe</h4>\n");
-            sb.append("<table class=\"dt\"><thead><tr><th>Lauf</th><th>MRR</th><th>NDCG@k</th><th>Recall@k</th><th>Dauer (ms)</th><th>Gefunden (Top 5)</th></tr></thead><tbody>\n");
+            sb.append("<table class=\"dt\"><thead><tr><th>Lauf</th><th>MRR</th><th>NDCG@k</th><th>Recall@k</th><th>Dauer (s)</th><th>Gefunden (Top 5)</th></tr></thead><tbody>\n");
             for (int i = 0; i < r.graphRuns().size(); i++) {
                 GraphRetrievalRunResult g = r.graphRuns().get(i);
                 String top5 = g.retrievedDocuments().stream().limit(5)
                         .map(this::escape).collect(Collectors.joining(", "));
-                sb.append(String.format("<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%d</td><td>%s</td></tr>%n",
-                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs(), top5.isEmpty() ? "—" : top5));
+                sb.append(String.format("<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%s</td></tr>%n",
+                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs() / 1000.0, top5.isEmpty() ? "—" : top5));
             }
             sb.append("</tbody></table>\n");
 
             // LLM runs
             sb.append("<h4>LLM — Läufe</h4>\n");
-            sb.append("<table class=\"dt\"><thead><tr><th>Lauf</th><th>Recall</th><th>Precision</th><th>F1</th><th>Hit</th><th>Dauer (ms)</th><th>Gefunden</th></tr></thead><tbody>\n");
+            sb.append("<table class=\"dt\"><thead><tr><th>Lauf</th><th>Recall</th><th>Precision</th><th>F1</th><th>Hit</th><th>Dauer (s)</th><th>Gefunden</th></tr></thead><tbody>\n");
             for (int i = 0; i < r.llmRuns().size(); i++) {
                 LlmRunResult l = r.llmRuns().get(i);
-                sb.append(String.format("<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%s</td><td>%d</td><td>%s</td></tr>%n",
+                sb.append(String.format("<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%s</td><td>%.2f</td><td>%s</td></tr>%n",
                         i + 1, l.recall(), l.precision(), l.f1(),
-                        l.hit() ? "✓" : "✗", l.durationMs(), escape(joinList(l.retrievedDocuments()))));
+                        l.hit() ? "✓" : "✗", l.durationMs() / 1000.0, escape(joinList(l.retrievedDocuments()))));
             }
             sb.append("</tbody></table>\n");
 
