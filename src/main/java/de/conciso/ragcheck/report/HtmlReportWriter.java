@@ -33,7 +33,8 @@ public class HtmlReportWriter {
         sb.append("<meta charset=\"UTF-8\">\n");
         sb.append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
         sb.append("<title>RAGChecker Report — ").append(escape(ts)).append("</title>\n");
-        sb.append("<script src=\"https://cdn.jsdelivr.net/npm/chart.js\"></script>\n");
+        sb.append("<script src=\"https://cdn.jsdelivr.net/npm/chart.js@4\"></script>\n");
+        sb.append("<script src=\"https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4\"></script>\n");
         sb.append(css());
         sb.append("</head>\n<body>\n");
 
@@ -68,9 +69,19 @@ public class HtmlReportWriter {
         sb.append(card("Ø MRR", data.avgLlmMrr()));
         sb.append("</div>\n</section>\n");
 
-        // Chart
+        // Bar chart
         sb.append("<section>\n<h2>Metriken je Testfall</h2>\n");
         sb.append("<div class=\"chart-wrap\"><canvas id=\"chart\"></canvas></div>\n</section>\n");
+
+        // Boxplots (nur bei mehr als 1 Lauf sinnvoll)
+        if (data.runsPerTestCase() > 1) {
+            sb.append("<section>\n<h2>Verteilung über Läufe (Boxplots)</h2>\n");
+            sb.append("<p class=\"sub\">Jede Box zeigt die Verteilung der Metrikwerte über alle Läufe je Testfall.</p>\n");
+            sb.append("<div class=\"chart-grid\">\n");
+            sb.append("<div class=\"chart-wrap\"><canvas id=\"bpGraph\"></canvas></div>\n");
+            sb.append("<div class=\"chart-wrap\"><canvas id=\"bpLlm\"></canvas></div>\n");
+            sb.append("</div>\n</section>\n");
+        }
 
         // Results tables
         sb.append("<section>\n<h2>Ergebnisse — Graph-Retrieval</h2>\n");
@@ -166,6 +177,9 @@ public class HtmlReportWriter {
         sb.append("</section>\n");
 
         sb.append(chartScript(data));
+        if (data.runsPerTestCase() > 1) {
+            sb.append(boxplotScript(data));
+        }
         sb.append("</body>\n</html>\n");
         return sb.toString();
     }
@@ -193,6 +207,45 @@ public class HtmlReportWriter {
                 + "    ]\n  },\n"
                 + "  options: { responsive: true, scales: { y: { beginAtZero: true, max: 1.0 } } }\n"
                 + "});\n</script>\n";
+    }
+
+    private String boxplotScript(ReportData data) {
+        // Labels: Testfall-IDs
+        String labels = join(data.results(), r -> "\"" + r.testCaseId().replace("\"", "\\\"") + "\"");
+
+        // Für jeden Testfall: Array der Lauf-Werte → [[run1,run2,...], [run1,run2,...], ...]
+        String graphMrrData    = bpData(data.results(), r -> r.graphRuns().stream()
+                .map(g -> fmt(g.mrr())).collect(Collectors.joining(",")));
+        String graphNdcgData   = bpData(data.results(), r -> r.graphRuns().stream()
+                .map(g -> fmt(g.ndcgAtK())).collect(Collectors.joining(",")));
+        String graphRecallData = bpData(data.results(), r -> r.graphRuns().stream()
+                .map(g -> fmt(g.recallAtK())).collect(Collectors.joining(",")));
+        String llmRecallData   = bpData(data.results(), r -> r.llmRuns().stream()
+                .map(l -> fmt(l.recall())).collect(Collectors.joining(",")));
+        String llmPrecData     = bpData(data.results(), r -> r.llmRuns().stream()
+                .map(l -> fmt(l.precision())).collect(Collectors.joining(",")));
+        String llmF1Data       = bpData(data.results(), r -> r.llmRuns().stream()
+                .map(l -> fmt(l.f1())).collect(Collectors.joining(",")));
+
+        return "<script>\n(function(){\n"
+                + "const bpLabels=[" + labels + "];\n"
+                + "const bpOpts={responsive:true,plugins:{legend:{position:'bottom'}},scales:{y:{beginAtZero:true,max:1.0}}};\n"
+                + "new Chart(document.getElementById('bpGraph'),{type:'boxplot',data:{labels:bpLabels,datasets:[\n"
+                + "  {label:'MRR',      data:[" + graphMrrData    + "],backgroundColor:'rgba(54,162,235,0.5)',borderColor:'rgba(54,162,235,1)'},\n"
+                + "  {label:'NDCG@k',   data:[" + graphNdcgData   + "],backgroundColor:'rgba(54,162,235,0.3)',borderColor:'rgba(54,162,235,0.7)'},\n"
+                + "  {label:'Recall@k', data:[" + graphRecallData + "],backgroundColor:'rgba(54,162,235,0.15)',borderColor:'rgba(54,162,235,0.5)'}\n"
+                + "]},options:bpOpts});\n"
+                + "new Chart(document.getElementById('bpLlm'),{type:'boxplot',data:{labels:bpLabels,datasets:[\n"
+                + "  {label:'Recall',    data:[" + llmRecallData + "],backgroundColor:'rgba(255,159,64,0.5)',borderColor:'rgba(255,159,64,1)'},\n"
+                + "  {label:'Precision', data:[" + llmPrecData   + "],backgroundColor:'rgba(75,192,192,0.5)',borderColor:'rgba(75,192,192,1)'},\n"
+                + "  {label:'F1',        data:[" + llmF1Data     + "],backgroundColor:'rgba(153,102,255,0.5)',borderColor:'rgba(153,102,255,1)'}\n"
+                + "]},options:bpOpts});\n"
+                + "})();\n</script>\n";
+    }
+
+    private String bpData(List<AggregatedEvalResult> results,
+                          java.util.function.Function<AggregatedEvalResult, String> fn) {
+        return results.stream().map(r -> "[" + fn.apply(r) + "]").collect(Collectors.joining(","));
     }
 
     private String ds(String label, String data, String color) {
@@ -236,6 +289,10 @@ public class HtmlReportWriter {
                   td.not-found { color: #aaa; }
                   pre.resp { background: #f5f5f5; border-left: 4px solid #ddd; padding: .75rem 1rem; white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
                   .chart-wrap { max-width: 900px; margin-bottom: 2rem; }
+                  .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
+                  .chart-grid .chart-wrap { max-width: 100%; }
+                  @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+                  .sub { color: #666; margin: -.5rem 0 1rem; font-size: .9rem; }
                   h2 { margin-top: 1.5rem; } h4 { margin: 1rem 0 .4rem; }
                   section { margin-bottom: .5rem; }
                 </style>
