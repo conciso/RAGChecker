@@ -309,8 +309,76 @@ docker compose -f docker-compose-local.yml up --build
 
 ---
 
+## Parameter-Importance-Analyse
+
+Neben den Reports bietet RAGChecker ein Python-Script zur statistischen Auswertung mehrerer Läufe.
+Es analysiert, welche Parameter den größten Einfluss auf die Retrieval-Qualität haben, und empfiehlt datengetrieben die nächsten vielversprechenden Parameterkombinationen.
+
+Das Script liegt unter [`analysis/parameter_analysis.py`](analysis/parameter_analysis.py),
+das Konzept ist in [`analysis/VORSCHLAG.md`](analysis/VORSCHLAG.md) beschrieben.
+
+### Drei Analyse-Phasen
+
+| Phase | Methode | Output |
+|---|---|---|
+| **1 – Exploration** | Korrelationsmatrix, Boxplots, Scatterplots | Überblick: welche Parameter kovariieren mit den Metriken? |
+| **2 – SHAP** | RF oder XGBoost + SHAP Dependence Plots + PDP | Parameter-Ranking, in welchem Wertebereich ein Parameter positiv beiträgt |
+| **3 – Optuna** | Bayesian Optimization (TPE Surrogate-Modell) | Vorschlag der nächsten N Parameterkombinationen als CSV |
+| **4 – DoWhy** | Kausale Inferenz: ATE + Refutation + Counterfactuals | Unterscheidet Korrelation von kausalem Effekt, Was-wäre-wenn-Tabelle |
+
+### Schnellstart
+
+```bash
+cd analysis/
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+
+# Alle Phasen ausführen
+python parameter_analysis.py --reports ../reports
+
+# Nur eine Phase
+python parameter_analysis.py --reports ../reports --phase 2
+
+# XGBoost als Surrogate-Modell
+python parameter_analysis.py --reports ../reports --model xgb
+
+# Andere Zielmetrik (default: llm_f1)
+python parameter_analysis.py --reports ../reports --target graph_recall
+
+# Mehr Empfehlungen ausgeben
+python parameter_analysis.py --reports ../reports --suggestions 10
+
+# DoWhy: explizites Treatment-Feature für kausale Analyse
+python parameter_analysis.py --reports ../reports --phase 4 --treatment query_mode
+```
+
+Alle Plots und die Empfehlungs-CSV werden in `analysis/output/` gespeichert.
+Das Script durchsucht das Reports-Verzeichnis rekursiv — verschachtelte Strukturen
+(`reports/run1/ragcheck_*.json`, `reports/run2/ragcheck_*.json`, …) werden direkt unterstützt.
+
+### Voraussetzungen
+
+- Python 3.10+
+- Mindestens 2 Läufe mit unterschiedlichen Parametern; ab 5 Läufen sind SHAP und Optuna aussagekräftig
+
+---
+
+## Projektstruktur
+
+```
+.
+├── analysis/
+│   ├── VORSCHLAG.md                         # Konzept & Methoden-Übersicht
+│   ├── parameter_analysis.py                # Python-Analyse (Phase 1–3)
+│   └── requirements.txt                     # Python-Abhängigkeiten
+```
+
+---
+
 ## Tech Stack
 
 - Java 21, Spring Boot 3.4.x, Maven
 - Jackson (JSON + YAML)
 - LightRAG REST API (`POST /query/data`, `POST /query`)
+- Python 3.10+, pandas, scikit-learn, SHAP, Optuna (Analyse-Script)

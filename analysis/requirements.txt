@@ -1,0 +1,17 @@
+# RAGChecker Parameter-Importance-Analyse
+# Python 3.10+
+#
+# Installation:
+#   python -m venv .venv
+#   source .venv/bin/activate      # Windows: .venv\Scripts\activate
+#   pip install -r requirements.txt
+
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7
+seaborn>=0.13
+scikit-learn>=1.4
+shap>=0.45
+optuna>=3.6
+xgboost>=2.0
+dowhy>=0.11
