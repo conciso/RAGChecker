@@ -741,20 +741,45 @@ def phase4_dowhy(
         print(f"  ⚠  Treatment '{treatment_col}' nicht in Feature-Spalten. Verfügbar: {feature_cols}")
         treatment_col = None
 
+    # Welche Kategorie soll als "1" gelten bei automatischer Binarisierung?
+    _treatment_pos_val: Optional[str] = None
+
     if treatment_col is None:
-        # Auto-Auswahl: kategorische mit 2 Werten bevorzugen
-        binary_cats = [
-            c for c in feature_cols
-            if df[c].dropna().nunique() == 2
-        ]
-        if binary_cats:
-            treatment_col = binary_cats[0]
-            print(f"  ℹ  Auto-Treatment: '{treatment_col}' (binär/kategorisch)")
-        else:
-            # Fallback: häufig variierender numerischer Parameter
+        # Priorität 1: Features mit exakt 2 Werten
+        binary_feats = [c for c in feature_cols if df[c].dropna().nunique() == 2]
+        if binary_feats:
+            treatment_col = binary_feats[0]
+            print(f"  ℹ  Auto-Treatment: '{treatment_col}' (binär)")
+
+        # Priorität 2: Kategorische Features – wähle die Kategorie mit größtem Effekt auf Target
+        if treatment_col is None:
+            cat_feats = [
+                c for c in feature_cols
+                if not pd.api.types.is_numeric_dtype(df[c]) and df[c].dropna().nunique() >= 2
+            ]
+            if cat_feats:
+                overall_mean = df[target].dropna().mean()
+                best_feat, best_cat, best_delta = None, None, -999.0
+                for feat in cat_feats:
+                    for val in df[feat].dropna().unique():
+                        grp = df.loc[df[feat] == val, target].dropna()
+                        if len(grp) >= 2:
+                            # Positiv abweichende Kategorie bevorzugen (z.B. hybrid statt global)
+                            delta = grp.mean() - overall_mean
+                            if delta > best_delta:
+                                best_delta, best_feat, best_cat = delta, feat, val
+                if best_feat:
+                    treatment_col = best_feat
+                    _treatment_pos_val = best_cat
+                    print(f"  ℹ  Auto-Treatment: '{treatment_col}' "
+                          f"('{best_cat}' vs. Rest, Δ={best_delta:.3f})")
+
+        # Priorität 3: Numerisch – höchste Varianz
+        if treatment_col is None:
             num_varying = sorted(
-                [c for c in feature_cols if pd.api.types.is_numeric_dtype(df[c]) and df[c].nunique() > 1],
-                key=lambda c: df[c].std(), reverse=True
+                [c for c in feature_cols
+                 if pd.api.types.is_numeric_dtype(df[c]) and df[c].nunique() > 1],
+                key=lambda c: df[c].std(), reverse=True,
             )
             if not num_varying:
                 print("  ❌  Kein geeignetes Treatment-Feature gefunden.")
@@ -774,82 +799,107 @@ def phase4_dowhy(
         treatment_display = f"{treatment_col} (>Median={median_val:.3g})"
         print(f"  ℹ  Numerisches Treatment gebucketed: 0 = ≤{median_val:.3g}, 1 = >{median_val:.3g}")
 
-    # Kategorisches Treatment in int encodieren
+    # Kategorisches Treatment binarisieren
     if not pd.api.types.is_numeric_dtype(df_dw[treatment_col]):
-        uniq = sorted(df_dw[treatment_col].dropna().unique())
-        df_dw[treatment_col] = df_dw[treatment_col].map({v: i for i, v in enumerate(uniq)})
-        print(f"  ℹ  Kategorisches Treatment: {dict(enumerate(uniq))}")
+        if _treatment_pos_val is not None:
+            # Auto-gewählte Kategorie vs. Rest (1 = pos_val, 0 = alles andere)
+            df_dw[treatment_col] = (df_dw[treatment_col] == _treatment_pos_val).astype(int)
+            treatment_display = f"{treatment_col}=='{_treatment_pos_val}'"
+            print(f"  ℹ  Kategorisches Treatment binarisiert: 1='{_treatment_pos_val}', 0=Rest")
+        else:
+            # Manuell angegeben oder wirklich binär: ordinale Kodierung
+            uniq = sorted(df_dw[treatment_col].dropna().unique())
+            df_dw[treatment_col] = df_dw[treatment_col].map({v: i for i, v in enumerate(uniq)})
+            print(f"  ℹ  Kategorisches Treatment ordinalkodiert: {dict(enumerate(uniq))}")
 
     df_dw = df_dw.fillna(df_dw.median(numeric_only=True))
     common_causes = [c for c in feature_cols if c != treatment_col]
-
-    # ── Kausales Modell (DAG) ─────────────────────────────────
-    #
-    # Annahme: alle Parameter → Outcome, keine Confoundings zwischen Parametern.
-    # Das ist die einfachste valide DAG-Annahme für unseren Use Case:
-    # Parameter werden unabhängig gesetzt (keine Kausalbeziehungen zwischen ihnen).
-    #
-    # Für komplexere Annahmen (z.B. chunk_size → graph_quality → llm_f1)
-    # kann graph_str manuell angepasst werden.
-    #
-    edges = " ".join(
-        [f"{treatment_col} -> {target};"]
-        + [f"{c} -> {target};" for c in common_causes]
-    )
-    graph_str = f"digraph {{ {edges} }}"
 
     print(f"\n  ℹ  Treatment  : {treatment_display}")
     print(f"  ℹ  Outcome    : {target}")
     print(f"  ℹ  Confounders: {common_causes or '(keine)'}")
 
+    # Annahme: alle anderen Parameter sind Confounder (unabhängig gesetzt).
+    # common_causes statt graph= vermeidet networkx-Versionskonflikte.
     try:
         causal_model = CausalModel(
             data=df_dw,
             treatment=treatment_col,
             outcome=target,
-            graph=graph_str,
+            common_causes=common_causes if common_causes else None,
         )
     except Exception as exc:
         print(f"  ❌  CausalModel-Erstellung fehlgeschlagen: {exc}")
         return
 
-    # ── ATE (Average Treatment Effect) ───────────────────────
+    # ── ATE (Average Treatment Effect) via LinearRegression ──
+    #
+    # Backdoor-Adjustment: Regressiere Outcome auf Treatment + alle Confounders.
+    # Der Koeffizient des Treatments ist der ATE (unter Linearitätsannahme).
+    # Robust gegenüber networkx-Versionskonflikten in DoWhy's identify_effect().
+    #
     print("\n  Schätze Average Treatment Effect (ATE)...")
+    from sklearn.linear_model import LinearRegression
+    from scipy import stats as scipy_stats
+
+    ate: float = 0.0
+    estimate = None
+    identified_estimand = None
+
     try:
-        identified_estimand = causal_model.identify_effect(
-            proceed_when_unidentifiable=True
-        )
-        estimate = causal_model.estimate_effect(
-            identified_estimand,
-            method_name="backdoor.linear_regression",
-            test_significance=True,
-        )
-        ate = estimate.value
+        X_ate = df_dw[feature_cols].copy().astype(float)
+        y_ate = df_dw[target].values
+
+        lr_ate = LinearRegression()
+        lr_ate.fit(X_ate, y_ate)
+
+        t_idx = list(X_ate.columns).index(treatment_col)
+        ate = float(lr_ate.coef_[t_idx])
+
+        # p-Wert via t-Test (OLS-Approximation)
+        y_pred = lr_ate.predict(X_ate)
+        residuals = y_ate - y_pred
+        n, k = len(y_ate), X_ate.shape[1]
+        mse = np.dot(residuals, residuals) / max(n - k - 1, 1)
+        try:
+            X_np = X_ate.values
+            cov = mse * np.linalg.inv(X_np.T @ X_np)
+            se = float(np.sqrt(np.diag(cov)[t_idx]))
+            t_stat = ate / se if se > 0 else 0.0
+            p_val = float(2 * scipy_stats.t.sf(abs(t_stat), df=n - k - 1))
+        except np.linalg.LinAlgError:
+            se, p_val = 0.0, 1.0
+
         print(f"\n  📐  ATE ({treatment_display} → {target}): {ate:+.4f}")
         if abs(ate) < 0.01:
             interpretation = "kein messbarer kausaler Effekt"
         elif ate > 0:
-            interpretation = f"höherer Wert von '{treatment_col}' verbessert {target}"
+            interpretation = f"'{treatment_col}' == 1 verbessert {target} kausal"
         else:
-            interpretation = f"höherer Wert von '{treatment_col}' verschlechtert {target}"
+            interpretation = f"'{treatment_col}' == 1 verschlechtert {target} kausal"
         print(f"      Interpretation: {interpretation}")
+        sig_label = "✓ signifikant" if p_val < 0.05 else "⚠ nicht signifikant"
+        print(f"      p-Wert: {p_val:.4f}  {sig_label}  (OLS-Approximation, n={n})")
 
-        # P-Value ausgeben falls vorhanden
-        if hasattr(estimate, "test_stat_significance"):
-            sig = estimate.test_stat_significance()
-            if sig and "p_value" in sig:
-                print(f"      p-Wert: {sig['p_value']:.4f}"
-                      + ("  ✓ signifikant" if sig["p_value"] < 0.05 else "  ⚠ nicht signifikant"))
+        # DoWhy: Refutation versuchen (optional, kann bei networkx-Konflikten fehlschlagen)
+        try:
+            identified_estimand = causal_model.identify_effect(
+                proceed_when_unidentifiable=True
+            )
+            estimate = causal_model.estimate_effect(
+                identified_estimand,
+                method_name="backdoor.linear_regression",
+                test_significance=False,
+            )
+        except Exception:
+            pass  # Refutation wird weiter unten sauber behandelt
+
     except Exception as exc:
         print(f"  ⚠  ATE-Schätzung fehlgeschlagen: {exc}")
-        estimate = None
-        identified_estimand = None
 
     # ── Sensitivitätschecks (Refutation) ─────────────────────
-    if estimate is not None and identified_estimand is not None:
+    if identified_estimand is not None and estimate is not None:
         print("\n  Refutation-Tests (Sensitivitätschecks)...")
-        refutation_results = {}
-
         for method, label in [
             ("random_common_cause", "Zufälliger Confounder"),
             ("placebo_treatment_refuter", "Placebo Treatment"),
@@ -862,11 +912,13 @@ def phase4_dowhy(
                     random_seed=RANDOM_STATE,
                 )
                 new_effect = getattr(ref, "new_effect", None)
-                refutation_results[label] = new_effect
                 status = "✓" if new_effect is not None and abs(new_effect - ate) < abs(ate) * 0.5 else "⚠"
                 print(f"    {status} {label:30s}: neuer Effekt = {new_effect:.4f if new_effect is not None else 'n/a'}")
             except Exception as exc:
                 print(f"    ⚠  {label}: {exc}")
+    else:
+        print("\n  ℹ  DoWhy-Refutation übersprungen (networkx-Inkompatibilität)."
+              "\n     ATE via OLS-Backdoor-Regression berechnet (gleichwertig).")
 
     # ── Counterfactuals ───────────────────────────────────────
     #
@@ -929,8 +981,8 @@ def phase4_dowhy(
         axes[0].set_title(f"Score-Verteilung nach Treatment\n'{treatment_display}'")
         axes[0].set_ylim(-0.05, 1.15)
 
-        # Rechte Seite: ATE als Balken mit Unsicherheit
-        if estimate is not None:
+        # Rechte Seite: ATE als Balken (immer zeichnen – ate kommt aus OLS, nicht DoWhy)
+        if ate != 0.0:
             axes[1].bar(
                 [f"ATE\n{treatment_display}→{target}"],
                 [ate],
