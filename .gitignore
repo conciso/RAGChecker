@@ -7,6 +7,8 @@ target/
 .idea/
 .vscode/
 *.iml
+.settings
+.project
 
 # Environment
 .env
@@ -17,6 +19,9 @@ analysis/output/
 analysis/reports/
 __pycache__/
 *.pyc
+
+# Reports
+reports/
 
 # Lokale Docker-Configs
 docker-compose-local.yml
