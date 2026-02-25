@@ -21,7 +21,8 @@ import java.util.Map;
 
 /**
  * Wird aktiv wenn RAGCHECKER_MODE=compare.
- * Liest alle ragcheck_*.json im Output-Verzeichnis und erstellt einen Vergleichsreport.
+ * Liest alle <subdir>/<subdir>.json Unterverzeichnisse im Output-Verzeichnis
+ * und erstellt einen Vergleichsreport (compare.json/.md/.html).
  */
 @Component
 @ConditionalOnProperty(name = "ragchecker.mode", havingValue = "compare")
@@ -52,7 +53,7 @@ public class ComparisonRunner implements CommandLineRunner {
 
         List<Path> reportFiles = findReportFiles(dir);
         if (reportFiles.isEmpty()) {
-            log.warn("Keine ragcheck_*.json Dateien in {} gefunden.", dir.toAbsolutePath());
+            log.warn("Keine Report-Unterverzeichnisse in {} gefunden.", dir.toAbsolutePath());
             return;
         }
 
@@ -86,11 +87,9 @@ public class ComparisonRunner implements CommandLineRunner {
     private List<Path> findReportFiles(Path dir) throws IOException {
         try (var stream = Files.list(dir)) {
             return stream
-                    .filter(p -> {
-                        String name = p.getFileName().toString();
-                        return name.startsWith("ragcheck_") && name.endsWith(".json")
-                                && !name.equals("comparison.json");
-                    })
+                    .filter(Files::isDirectory)
+                    .map(subDir -> subDir.resolve(subDir.getFileName() + ".json"))
+                    .filter(Files::isRegularFile)
                     .sorted()
                     .toList();
         }

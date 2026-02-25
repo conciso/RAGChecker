@@ -61,11 +61,15 @@ public class ReportWriter {
         Map<String, String> runParameters = parseParameters(runParametersRaw);
         ReportData data = ReportData.of(results, runLabel, runParameters,
                 queryMode, topK, runsPerTestCase, testCasesPath);
+
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
-        String baseName = "ragcheck_" + timestamp;
+        String baseName = (runLabel != null && !runLabel.isBlank())
+                ? runLabel
+                : "ragcheck_" + timestamp;
 
         try {
-            Path dir = Path.of(outputPath);
+            // Dateien kommen in ein Unterverzeichnis <outputPath>/<baseName>/
+            Path dir = Path.of(outputPath).resolve(baseName);
             Files.createDirectories(dir);
 
             Path jsonPath = dir.resolve(baseName + ".json");
