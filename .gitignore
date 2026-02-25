@@ -1,42 +1,25 @@
+# Java / Maven
 target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+*.class
+*.jar
 
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
-### Eclipse ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### VS Code ###
+# IDE
+.idea/
 .vscode/
+*.iml
 
-### Mac ###
+# Environment
+.env
+
+# Python
+analysis/.venv/
+analysis/output/
+analysis/reports/
+__pycache__/
+*.pyc
+
+# Lokale Docker-Configs
+docker-compose-local.yml
+
+# macOS
 .DS_Store
-
-### Environment ###
-.env*
-!.env.example
-logs/
-data/
-reports/
