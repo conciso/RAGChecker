@@ -10,9 +10,13 @@ public record GraphRetrievalRunResult(
         double mrr,
         double ndcgAtK,
         double recallAtK,
-        long durationMs
+        long durationMs,
+        List<String> entityNames,
+        List<String> relationshipPairs,
+        Map<String, List<String>> documentsBySource
 ) {
-    public static GraphRetrievalRunResult of(TestCase tc, List<String> orderedDocs, long durationMs) {
+    public static GraphRetrievalRunResult of(TestCase tc, GraphRetrievalData data, long durationMs) {
+        List<String> orderedDocs = data.retrievedDocuments();
         List<String> expected = tc.expectedDocuments();
 
         Map<String, Integer> ranks = new LinkedHashMap<>();
@@ -29,7 +33,8 @@ public record GraphRetrievalRunResult(
         double ndcg      = computeNdcgAtK(expected, orderedDocs);
         double recallAtK = expected.isEmpty() ? 0.0 : (double) ranks.size() / expected.size();
 
-        return new GraphRetrievalRunResult(orderedDocs, ranks, mrr, ndcg, recallAtK, durationMs);
+        return new GraphRetrievalRunResult(orderedDocs, ranks, mrr, ndcg, recallAtK, durationMs,
+                data.entityNames(), data.relationshipPairs(), data.documentsBySource());
     }
 
     public static boolean matches(String retrieved, String expected) {

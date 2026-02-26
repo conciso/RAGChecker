@@ -10,8 +10,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import de.conciso.ragcheck.model.GraphRetrievalData;
+
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -43,10 +47,11 @@ public class LightRagClient {
 
     /**
      * Graph-Retrieval via /query/data.
-     * Gibt die referenzierten Dokumente in Reihenfolge zurück (Position = Relevanz-Rang).
+     * Gibt die referenzierten Dokumente in Reihenfolge zurück (Position = Relevanz-Rang)
+     * sowie semantische Metadaten (Entity-Namen, Relationship-Paare, Quellen-Zuordnung).
      * Kein LLM-Aufruf — schnell.
      */
-    public List<String> queryData(String prompt, String mode) {
+    public GraphRetrievalData queryData(String prompt, String mode) {
         QueryDataResponse response = restClient.post()
                 .uri("/query/data")
                 .body(Map.of(
@@ -59,7 +64,7 @@ public class LightRagClient {
 
         if (response == null || response.data() == null) {
             log.warn("Empty /query/data response for: {}", prompt);
-            return List.of();
+            return new GraphRetrievalData(List.of(), List.of(), List.of(), Map.of());
         }
 
         QueryData data = response.data();
@@ -110,7 +115,36 @@ public class LightRagClient {
                 .forEach(ordered::add);
 
         log.debug("Ordered documents for ranking: {}", ordered);
-        return List.copyOf(ordered);
+
+        // Entity-Namen (High-level / Wissensgraph)
+        List<String> entityNames = data.entities() == null ? List.of() :
+                data.entities().stream()
+                        .map(Entity::entityName)
+                        .filter(n -> n != null && !n.isBlank())
+                        .distinct()
+                        .toList();
+
+        // Relationship-Paare
+        List<String> relationshipPairs = data.relationships() == null ? List.of() :
+                data.relationships().stream()
+                        .filter(r -> r.srcId() != null && r.tgtId() != null)
+                        .map(r -> r.srcId() + " → " + r.tgtId())
+                        .distinct()
+                        .toList();
+
+        // Dateinamen je Quelltyp (nur Dateinamen, keine vollen Pfade)
+        Map<String, List<String>> documentsBySource = new LinkedHashMap<>();
+        documentsBySource.put("references", fromReferences.stream()
+                .map(p -> Paths.get(p).getFileName().toString()).distinct().toList());
+        documentsBySource.put("chunks", fromChunks.stream()
+                .map(p -> Paths.get(p).getFileName().toString()).distinct().toList());
+        documentsBySource.put("entities", fromEntities.stream()
+                .map(p -> Paths.get(p).getFileName().toString()).distinct().toList());
+        documentsBySource.put("relationships", fromRelationships.stream()
+                .map(p -> Paths.get(p).getFileName().toString()).distinct().toList());
+
+        return new GraphRetrievalData(List.copyOf(ordered), entityNames, relationshipPairs,
+                Collections.unmodifiableMap(documentsBySource));
     }
 
     /**

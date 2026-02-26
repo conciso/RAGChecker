@@ -2,6 +2,7 @@ package de.conciso.ragcheck.service;
 
 import de.conciso.ragcheck.api.LightRagClient;
 import de.conciso.ragcheck.model.AggregatedEvalResult;
+import de.conciso.ragcheck.model.GraphRetrievalData;
 import de.conciso.ragcheck.model.GraphRetrievalRunResult;
 import de.conciso.ragcheck.model.LlmRunResult;
 import de.conciso.ragcheck.model.TestCase;
@@ -42,9 +43,9 @@ public class EvaluationService {
                 for (int i = 1; i <= runsPerTestCase; i++) {
                     log.info("Running [{}/{}] ({}/{}) — Graph: {}", tc.id(), mode, i, runsPerTestCase, tc.prompt());
                     long graphStart = System.currentTimeMillis();
-                    List<String> orderedDocs = lightRagClient.queryData(tc.prompt(), mode);
+                    GraphRetrievalData graphData = lightRagClient.queryData(tc.prompt(), mode);
                     long graphDuration = System.currentTimeMillis() - graphStart;
-                    graphRuns.add(GraphRetrievalRunResult.of(tc, orderedDocs, graphDuration));
+                    graphRuns.add(GraphRetrievalRunResult.of(tc, graphData, graphDuration));
                     log.info("Running [{}/{}] ({}/{}) — Graph fertig in {}s", tc.id(), mode, i, runsPerTestCase, String.format("%.2f", graphDuration / 1000.0));
 
                     log.info("Running [{}/{}] ({}/{}) — LLM:   {}", tc.id(), mode, i, runsPerTestCase, tc.prompt());

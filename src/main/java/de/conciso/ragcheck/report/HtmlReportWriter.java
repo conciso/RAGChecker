@@ -148,15 +148,48 @@ public class HtmlReportWriter {
 
             // Graph runs
             sb.append("<h4>Graph-Retrieval — Läufe</h4>\n");
-            sb.append("<table class=\"dt\"><thead><tr><th>Lauf</th><th>MRR</th><th>NDCG@k</th><th>Recall@k</th><th>Dauer (s)</th><th>Gefunden (Top 5)</th></tr></thead><tbody>\n");
+            sb.append("<table class=\"dt\"><thead><tr><th>Lauf</th><th>MRR</th><th>NDCG@k</th><th>Recall@k</th><th>Dauer (s)</th><th>Gefunden (alle)</th></tr></thead><tbody>\n");
             for (int i = 0; i < r.graphRuns().size(); i++) {
                 GraphRetrievalRunResult g = r.graphRuns().get(i);
-                String top5 = g.retrievedDocuments().stream().limit(5)
+                String allDocs = g.retrievedDocuments().stream()
                         .map(this::escape).collect(Collectors.joining(", "));
                 sb.append(String.format("<tr><td>%d</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%s</td></tr>%n",
-                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs() / 1000.0, top5.isEmpty() ? "—" : top5));
+                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs() / 1000.0, allDocs.isEmpty() ? "—" : allDocs));
             }
             sb.append("</tbody></table>\n");
+
+            // Semantische Interpretation (nur beim ersten Lauf, da pro TC × Mode konstant)
+            if (!r.graphRuns().isEmpty()) {
+                GraphRetrievalRunResult first = r.graphRuns().get(0);
+                boolean hasEntities = !first.entityNames().isEmpty();
+                boolean hasPairs    = !first.relationshipPairs().isEmpty();
+                boolean hasSources  = first.documentsBySource().values().stream().anyMatch(l -> !l.isEmpty());
+                if (hasEntities || hasPairs || hasSources) {
+                    sb.append("<h4>Semantische Interpretation</h4>\n");
+                    if (hasEntities) {
+                        sb.append("<p><strong>Entities:</strong> ");
+                        first.entityNames().forEach(e ->
+                                sb.append("<span class=\"chip\">").append(escape(e)).append("</span> "));
+                        sb.append("</p>\n");
+                    }
+                    if (hasPairs) {
+                        sb.append("<p><strong>Relationships:</strong> ");
+                        first.relationshipPairs().forEach(p ->
+                                sb.append("<span class=\"chip chip-rel\">").append(escape(p)).append("</span> "));
+                        sb.append("</p>\n");
+                    }
+                    if (hasSources) {
+                        sb.append("<table class=\"dt src-tbl\"><thead><tr><th>Quelle</th><th>Dokumente</th></tr></thead><tbody>\n");
+                        first.documentsBySource().forEach((src, docs) -> {
+                            if (!docs.isEmpty()) {
+                                sb.append("<tr><td><code>").append(escape(src)).append("</code></td><td>")
+                                        .append(escape(String.join(", ", docs))).append("</td></tr>\n");
+                            }
+                        });
+                        sb.append("</tbody></table>\n");
+                    }
+                }
+            }
 
             // LLM runs
             sb.append("<h4>LLM — Läufe</h4>\n");
@@ -169,12 +202,14 @@ public class HtmlReportWriter {
             }
             sb.append("</tbody></table>\n");
 
-            // LLM response text from last run
-            if (!r.llmRuns().isEmpty()) {
-                String resp = r.llmRuns().get(r.llmRuns().size() - 1).responseText();
-                if (resp != null && !resp.isBlank()) {
-                    sb.append("<h4>LLM-Antwort (letzter Lauf)</h4>\n");
-                    sb.append("<pre class=\"resp\">").append(escape(resp)).append("</pre>\n");
+            // LLM-Antworten — alle Läufe als <details>
+            for (int i = 0; i < r.llmRuns().size(); i++) {
+                LlmRunResult l = r.llmRuns().get(i);
+                if (l.responseText() != null && !l.responseText().isBlank()) {
+                    sb.append(String.format(
+                            "<details><summary>Lauf %d &mdash; Recall: %.2f &nbsp; F1: %.2f &nbsp; (%.1fs)</summary>%n",
+                            i + 1, l.recall(), l.f1(), l.durationMs() / 1000.0));
+                    sb.append("<pre class=\"resp\">").append(escape(l.responseText())).append("</pre>\n</details>\n");
                 }
             }
 
@@ -340,6 +375,9 @@ public class HtmlReportWriter {
                   td.top { background: #c8e6c9; font-weight: bold; }
                   td.not-found { color: #aaa; }
                   pre.resp { background: #f5f5f5; border-left: 4px solid #ddd; padding: .75rem 1rem; white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
+                  .chip { display: inline-block; background: #e3f2fd; color: #0d47a1; border-radius: 12px; padding: .1rem .6rem; font-size: .8rem; margin: .1rem; }
+                  .chip-rel { background: #fce4ec; color: #880e4f; }
+                  table.src-tbl { margin-top: .5rem; }
                   .chart-wrap { max-width: 900px; margin-bottom: 2rem; }
                   .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem; }
                   .chart-grid .chart-wrap { max-width: 100%; }

@@ -108,6 +108,9 @@ public class JsonReportWriter {
         m.put("ndcgAtK", r(run.ndcgAtK()));
         m.put("recallAtK", r(run.recallAtK()));
         m.put("durationSec", run.durationMs() / 1000.0);
+        m.put("entityNames", run.entityNames());
+        m.put("relationshipPairs", run.relationshipPairs());
+        m.put("documentsBySource", run.documentsBySource());
         return m;
     }
 

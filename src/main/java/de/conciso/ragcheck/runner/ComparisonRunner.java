@@ -112,6 +112,9 @@ public class ComparisonRunner implements CommandLineRunner {
         Map<String, Object> summary = (Map<String, Object>) root.getOrDefault("summary", Map.of());
         Map<String, Object> graph   = (Map<String, Object>) summary.getOrDefault("graph", Map.of());
         Map<String, Object> llm     = (Map<String, Object>) summary.getOrDefault("llm", Map.of());
+        int totalTestCases           = toInt(summary.getOrDefault("totalTestCases", 0));
+        double avgGraphDurationSec   = toDouble(graph.getOrDefault("avgDurationSec", 0.0));
+        double avgLlmDurationSec     = toDouble(llm.getOrDefault("avgDurationSec", 0.0));
 
         // Per-Testfall-Daten für Boxplots
         List<Object> results = (List<Object>) root.getOrDefault("results", List.of());
@@ -154,7 +157,8 @@ public class ComparisonRunner implements CommandLineRunner {
                 toDouble(llm.getOrDefault("avgHitRate", 0.0)),
                 toDouble(llm.getOrDefault("avgMrr", 0.0)),
                 tcGraphMrr, tcGraphNdcg, tcGraphRecall,
-                tcLlmRecall, tcLlmPrecision, tcLlmF1, tcLlmHitRate, tcLlmMrr
+                tcLlmRecall, tcLlmPrecision, tcLlmF1, tcLlmHitRate, tcLlmMrr,
+                totalTestCases, avgGraphDurationSec, avgLlmDurationSec
         );
     }
 

@@ -116,15 +116,41 @@ public class MarkdownReportWriter {
             sb.append("\n");
 
             sb.append("#### Graph-Retrieval — Läufe\n\n");
-            sb.append("| Lauf | MRR | NDCG@k | Recall@k | Dauer (s) | Gefunden (Top 5) |\n|---|---|---|---|---|---|\n");
+            sb.append("| Lauf | MRR | NDCG@k | Recall@k | Dauer (s) | Gefunden (alle) |\n|---|---|---|---|---|---|\n");
             for (int i = 0; i < r.graphRuns().size(); i++) {
                 GraphRetrievalRunResult g = r.graphRuns().get(i);
-                String top5 = g.retrievedDocuments().stream().limit(5)
-                        .reduce((a, b) -> a + ", " + b).orElse("—");
+                String allDocs = g.retrievedDocuments().isEmpty() ? "—"
+                        : String.join(", ", g.retrievedDocuments());
                 sb.append(String.format("| %d | %.2f | %.2f | %.2f | %.2f | %s |%n",
-                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs() / 1000.0, top5));
+                        i + 1, g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs() / 1000.0, allDocs));
             }
             sb.append("\n");
+
+            // Semantische Interpretation (nur beim ersten Lauf, da pro TC × Mode konstant)
+            if (!r.graphRuns().isEmpty()) {
+                GraphRetrievalRunResult first = r.graphRuns().get(0);
+                boolean hasEntities = !first.entityNames().isEmpty();
+                boolean hasPairs    = !first.relationshipPairs().isEmpty();
+                boolean hasSources  = first.documentsBySource().values().stream().anyMatch(l -> !l.isEmpty());
+                if (hasEntities || hasPairs || hasSources) {
+                    sb.append("**Semantische Interpretation**\n\n");
+                    if (hasEntities) {
+                        sb.append("Entities: ").append(String.join(", ", first.entityNames())).append("\n\n");
+                    }
+                    if (hasPairs) {
+                        sb.append("Relationships: ").append(String.join(" | ", first.relationshipPairs())).append("\n\n");
+                    }
+                    if (hasSources) {
+                        sb.append("| Quelle | Dokumente |\n|---|---|\n");
+                        first.documentsBySource().forEach((src, docs) -> {
+                            if (!docs.isEmpty()) {
+                                sb.append("| ").append(src).append(" | ").append(String.join(", ", docs)).append(" |\n");
+                            }
+                        });
+                        sb.append("\n");
+                    }
+                }
+            }
 
             sb.append("#### LLM — Läufe\n\n");
             sb.append("| Lauf | Recall | Precision | F1 | Hit | Dauer (s) | Gefunden |\n|---|---|---|---|---|---|---|\n");
@@ -137,6 +163,17 @@ public class MarkdownReportWriter {
                         joinList(l.retrievedDocuments())));
             }
             sb.append("\n");
+
+            // LLM-Antworten — alle Läufe als <details>-Blöcke
+            for (int i = 0; i < r.llmRuns().size(); i++) {
+                LlmRunResult l = r.llmRuns().get(i);
+                if (l.responseText() != null && !l.responseText().isBlank()) {
+                    sb.append(String.format(
+                            "<details><summary>Lauf %d — Recall: %.2f  F1: %.2f  (%.1fs)</summary>%n%n",
+                            i + 1, l.recall(), l.f1(), l.durationMs() / 1000.0));
+                    sb.append("```\n").append(l.responseText()).append("\n```\n\n</details>\n\n");
+                }
+            }
         }
 
         Files.writeString(path, sb.toString(), StandardCharsets.UTF_8);

@@ -44,7 +44,11 @@ public class ComparisonReportWriter {
             List<Double> tcLlmPrecision,
             List<Double> tcLlmF1,
             List<Double> tcLlmHitRate,
-            List<Double> tcLlmMrr
+            List<Double> tcLlmMrr,
+            // Zusätzliche Statistiken
+            int totalTestCases,
+            double avgGraphDurationSec,
+            double avgLlmDurationSec
     ) {}
 
     public void write(List<ComparisonEntry> entries, Path outputDir) throws IOException {
@@ -78,39 +82,47 @@ public class ComparisonReportWriter {
         double bestLlmMrr        = best(entries, ComparisonEntry::avgLlmMrr);
 
         sb.append("## Graph-Retrieval\n\n");
-        sb.append("| # | Timestamp | Label | Parameter | Mode | Top-K | Ø MRR | Ø NDCG@k | Ø Recall@k |\n");
-        sb.append("|---|---|---|---|---|---|---|---|---|\n");
+        sb.append("| # | Timestamp | Label | Parameter | Mode | Top-K | #TC | #Läufe | Ø MRR | Ø NDCG@k | Ø Recall@k ± σ | Ø Dauer(s) |\n");
+        sb.append("|---|---|---|---|---|---|---|---|---|---|---|---|\n");
         for (int i = 0; i < entries.size(); i++) {
             ComparisonEntry e = entries.get(i);
-            sb.append(String.format("| %d | %s | %s | %s | %s | %d | %s | %s | %s |\n",
+            sb.append(String.format("| %d | %s | %s | %s | %s | %d | %d | %d | %s | %s | %s ± %.2f | %.1f |\n",
                     i + 1,
                     e.timestamp(),
                     e.runLabel().isBlank() ? "—" : e.runLabel(),
                     formatParams(fullParamsMap(e)),
                     e.queryMode(),
                     e.topK(),
+                    e.totalTestCases(),
+                    e.runsPerTestCase(),
                     mark(e.avgGraphMrr(), bestGraphMrr),
                     mark(e.avgGraphNdcgAtK(), bestGraphNdcg),
-                    mark(e.avgGraphRecallAtK(), bestGraphRecall)));
+                    mark(e.avgGraphRecallAtK(), bestGraphRecall),
+                    stdDev(e.tcGraphRecall()),
+                    e.avgGraphDurationSec()));
         }
 
         sb.append("\n## LLM\n\n");
-        sb.append("| # | Timestamp | Label | Parameter | Mode | Top-K | Ø Recall | Ø Precision | Ø F1 | Ø Hit-Rate | Ø MRR |\n");
-        sb.append("|---|---|---|---|---|---|---|---|---|---|---|\n");
+        sb.append("| # | Timestamp | Label | Parameter | Mode | Top-K | #TC | #Läufe | Ø Recall | Ø Precision | Ø F1 ± σ | Ø Hit-Rate | Ø MRR | Ø Dauer(s) |\n");
+        sb.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
         for (int i = 0; i < entries.size(); i++) {
             ComparisonEntry e = entries.get(i);
-            sb.append(String.format("| %d | %s | %s | %s | %s | %d | %s | %s | %s | %s | %s |\n",
+            sb.append(String.format("| %d | %s | %s | %s | %s | %d | %d | %d | %s | %s | %s ± %.2f | %s | %s | %.1f |\n",
                     i + 1,
                     e.timestamp(),
                     e.runLabel().isBlank() ? "—" : e.runLabel(),
                     formatParams(fullParamsMap(e)),
                     e.queryMode(),
                     e.topK(),
+                    e.totalTestCases(),
+                    e.runsPerTestCase(),
                     mark(e.avgLlmRecall(), bestLlmRecall),
                     mark(e.avgLlmPrecision(), bestLlmPrecision),
                     mark(e.avgLlmF1(), bestLlmF1),
+                    stdDev(e.tcLlmF1()),
                     mark(e.avgLlmHitRate(), bestLlmHitRate),
-                    mark(e.avgLlmMrr(), bestLlmMrr)));
+                    mark(e.avgLlmMrr(), bestLlmMrr),
+                    e.avgLlmDurationSec()));
         }
 
         if (!entries.isEmpty()) {
@@ -229,7 +241,7 @@ public class ComparisonReportWriter {
         sb.append("<h2>Graph-Retrieval</h2>\n");
         sb.append("<table id=\"graphTable\">\n<thead><tr>\n");
         for (String h : List.of("#", "Timestamp", "Label", "Parameter", "Mode", "Top-K",
-                "Ø MRR", "Ø NDCG@k", "Ø Recall@k")) {
+                "#TC", "#Läufe", "Ø MRR", "Ø NDCG@k", "Ø Recall@k", "±σ Recall@k", "Ø Dauer(s)")) {
             sb.append("<th>").append(h).append("</th>\n");
         }
         sb.append("</tr></thead>\n<tbody>\n");
@@ -242,9 +254,13 @@ public class ComparisonReportWriter {
             sb.append("<td class=\"params\">").append(esc(formatParams(fullParamsMap(e)))).append("</td>");
             sb.append("<td>").append(esc(e.queryMode())).append("</td>");
             sb.append("<td>").append(e.topK()).append("</td>");
+            sb.append("<td>").append(e.totalTestCases()).append("</td>");
+            sb.append("<td>").append(e.runsPerTestCase()).append("</td>");
             sb.append(valCell(e.avgGraphMrr(), bestGraphMrr));
             sb.append(valCell(e.avgGraphNdcgAtK(), bestGraphNdcg));
             sb.append(valCell(e.avgGraphRecallAtK(), bestGraphRecall));
+            sb.append(String.format("<td class=\"params\">%.2f</td>", stdDev(e.tcGraphRecall())));
+            sb.append(String.format("<td>%.1f</td>", e.avgGraphDurationSec()));
             sb.append("</tr>\n");
         }
         sb.append("</tbody></table>\n");
@@ -252,7 +268,7 @@ public class ComparisonReportWriter {
         sb.append("<h2>LLM</h2>\n");
         sb.append("<table id=\"llmTable\">\n<thead><tr>\n");
         for (String h : List.of("#", "Timestamp", "Label", "Parameter", "Mode", "Top-K",
-                "Ø Recall", "Ø Precision", "Ø F1", "Ø Hit-Rate", "Ø MRR")) {
+                "#TC", "#Läufe", "Ø Recall", "Ø Precision", "Ø F1", "±σ F1", "Ø Hit-Rate", "Ø MRR", "Ø Dauer(s)")) {
             sb.append("<th>").append(h).append("</th>\n");
         }
         sb.append("</tr></thead>\n<tbody>\n");
@@ -265,11 +281,15 @@ public class ComparisonReportWriter {
             sb.append("<td class=\"params\">").append(esc(formatParams(fullParamsMap(e)))).append("</td>");
             sb.append("<td>").append(esc(e.queryMode())).append("</td>");
             sb.append("<td>").append(e.topK()).append("</td>");
+            sb.append("<td>").append(e.totalTestCases()).append("</td>");
+            sb.append("<td>").append(e.runsPerTestCase()).append("</td>");
             sb.append(valCell(e.avgLlmRecall(), bestLlmRecall));
             sb.append(valCell(e.avgLlmPrecision(), bestLlmPrecision));
             sb.append(valCell(e.avgLlmF1(), bestLlmF1));
+            sb.append(String.format("<td class=\"params\">%.2f</td>", stdDev(e.tcLlmF1())));
             sb.append(valCell(e.avgLlmHitRate(), bestLlmHitRate));
             sb.append(valCell(e.avgLlmMrr(), bestLlmMrr));
+            sb.append(String.format("<td>%.1f</td>", e.avgLlmDurationSec()));
             sb.append("</tr>\n");
         }
         sb.append("</tbody></table>\n");
@@ -411,6 +431,13 @@ public class ComparisonReportWriter {
         if (e.topK() > 0) map.put("top_k", String.valueOf(e.topK()));
         if (e.runParameters() != null) map.putAll(e.runParameters());
         return map;
+    }
+
+    private double stdDev(List<Double> values) {
+        if (values == null || values.size() < 2) return 0.0;
+        double mean = values.stream().mapToDouble(Double::doubleValue).average().orElse(0);
+        double variance = values.stream().mapToDouble(v -> (v - mean) * (v - mean)).average().orElse(0);
+        return Math.sqrt(variance);
     }
 
     private String formatParams(Map<String, String> params) {
