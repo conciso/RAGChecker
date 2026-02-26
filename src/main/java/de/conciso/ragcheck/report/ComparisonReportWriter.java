@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalDouble;
@@ -85,7 +86,7 @@ public class ComparisonReportWriter {
                     i + 1,
                     e.timestamp(),
                     e.runLabel().isBlank() ? "—" : e.runLabel(),
-                    formatParams(e.runParameters()),
+                    formatParams(fullParamsMap(e)),
                     e.queryMode(),
                     e.topK(),
                     mark(e.avgGraphMrr(), bestGraphMrr),
@@ -102,7 +103,7 @@ public class ComparisonReportWriter {
                     i + 1,
                     e.timestamp(),
                     e.runLabel().isBlank() ? "—" : e.runLabel(),
-                    formatParams(e.runParameters()),
+                    formatParams(fullParamsMap(e)),
                     e.queryMode(),
                     e.topK(),
                     mark(e.avgLlmRecall(), bestLlmRecall),
@@ -119,9 +120,10 @@ public class ComparisonReportWriter {
             sb.append("**Timestamp:** ").append(top.timestamp()).append("  \n");
             sb.append("**Query Mode:** ").append(top.queryMode())
               .append(" | **Top-K:** ").append(top.topK()).append("  \n");
-            if (!top.runParameters().isEmpty()) {
+            Map<String, String> topParams = fullParamsMap(top);
+            if (!topParams.isEmpty()) {
                 sb.append("**Parameter:**  \n");
-                top.runParameters().forEach((k, v) ->
+                topParams.forEach((k, v) ->
                         sb.append("- `").append(k).append("` = `").append(v).append("`\n"));
             }
             sb.append(String.format("%nGraph: MRR=%.2f  NDCG=%.2f  Recall=%.2f  \n",
@@ -201,8 +203,9 @@ public class ComparisonReportWriter {
             sb.append("<p><strong>Timestamp:</strong> ").append(esc(top.timestamp())).append("</p>\n");
             sb.append("<p><strong>Query Mode:</strong> ").append(esc(top.queryMode()))
               .append(" &nbsp; <strong>Top-K:</strong> ").append(top.topK()).append("</p>\n");
-            if (!top.runParameters().isEmpty()) {
-                sb.append("<p><strong>Parameter:</strong> ").append(esc(formatParams(top.runParameters()))).append("</p>\n");
+            Map<String, String> topParams = fullParamsMap(top);
+            if (!topParams.isEmpty()) {
+                sb.append("<p><strong>Parameter:</strong> ").append(esc(formatParams(topParams))).append("</p>\n");
             }
             sb.append(String.format("<p>Graph: MRR=%.2f &nbsp; NDCG=%.2f &nbsp; Recall=%.2f</p>%n",
                     top.avgGraphMrr(), top.avgGraphNdcgAtK(), top.avgGraphRecallAtK()));
@@ -236,7 +239,7 @@ public class ComparisonReportWriter {
             sb.append("<td>").append(i + 1).append("</td>");
             sb.append("<td>").append(esc(e.timestamp())).append("</td>");
             sb.append("<td>").append(esc(e.runLabel().isBlank() ? "—" : e.runLabel())).append("</td>");
-            sb.append("<td class=\"params\">").append(esc(formatParams(e.runParameters()))).append("</td>");
+            sb.append("<td class=\"params\">").append(esc(formatParams(fullParamsMap(e)))).append("</td>");
             sb.append("<td>").append(esc(e.queryMode())).append("</td>");
             sb.append("<td>").append(e.topK()).append("</td>");
             sb.append(valCell(e.avgGraphMrr(), bestGraphMrr));
@@ -259,7 +262,7 @@ public class ComparisonReportWriter {
             sb.append("<td>").append(i + 1).append("</td>");
             sb.append("<td>").append(esc(e.timestamp())).append("</td>");
             sb.append("<td>").append(esc(e.runLabel().isBlank() ? "—" : e.runLabel())).append("</td>");
-            sb.append("<td class=\"params\">").append(esc(formatParams(e.runParameters()))).append("</td>");
+            sb.append("<td class=\"params\">").append(esc(formatParams(fullParamsMap(e)))).append("</td>");
             sb.append("<td>").append(esc(e.queryMode())).append("</td>");
             sb.append("<td>").append(e.topK()).append("</td>");
             sb.append(valCell(e.avgLlmRecall(), bestLlmRecall));
@@ -400,6 +403,14 @@ public class ComparisonReportWriter {
     private String mark(double value, double best) {
         String formatted = String.format("%.2f", value);
         return Math.abs(value - best) < 0.001 ? "**" + formatted + " ★**" : formatted;
+    }
+
+    /** Baut eine vollständige Parameter-Map inkl. top_k (vorne) für die Anzeige. */
+    private Map<String, String> fullParamsMap(ComparisonEntry e) {
+        Map<String, String> map = new LinkedHashMap<>();
+        if (e.topK() > 0) map.put("top_k", String.valueOf(e.topK()));
+        if (e.runParameters() != null) map.putAll(e.runParameters());
+        return map;
     }
 
     private String formatParams(Map<String, String> params) {
