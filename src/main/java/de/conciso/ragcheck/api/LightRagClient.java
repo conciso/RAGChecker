@@ -29,14 +29,12 @@ public class LightRagClient {
 
     private final RestClient restClient;
     private final String queryMode;
-    private final int topK;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public LightRagClient(
             @Value("${ragchecker.lightrag.url}") String baseUrl,
             @Value("${ragchecker.lightrag.api-key}") String apiKey,
-            @Value("${ragchecker.query.mode}") String queryMode,
-            @Value("${ragchecker.query.top-k}") int topK
+            @Value("${ragchecker.query.mode}") String queryMode
     ) {
         RestClient.Builder builder = RestClient.builder().baseUrl(baseUrl);
         if (apiKey != null && !apiKey.isBlank()) {
@@ -44,7 +42,6 @@ public class LightRagClient {
         }
         this.restClient = builder.build();
         this.queryMode = queryMode;
-        this.topK = topK;
     }
 
     /**
@@ -58,8 +55,7 @@ public class LightRagClient {
                 .body(Map.of(
                         "query", prompt,
                         "mode", queryMode,
-                        "include_references", true,
-                        "top_k", topK
+                        "include_references", true
                 ))
                 .retrieve()
                 .body(QueryDataResponse.class);
@@ -131,8 +127,7 @@ public class LightRagClient {
                 .body(Map.of(
                         "query", prompt,
                         "mode", queryMode,
-                        "stream", false,
-                        "top_k", topK
+                        "stream", false
                 ))
                 .retrieve()
                 .body(String.class);

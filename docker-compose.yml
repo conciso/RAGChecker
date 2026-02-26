@@ -5,6 +5,7 @@ services:
     volumes:
       - ./testcases:/app/testcases:ro
       - ./reports:/app/reports
+      - /opt/lightrag/override.env:/config/override.env:ro
     networks:
       - aibox_network
 

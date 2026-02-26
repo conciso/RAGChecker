@@ -23,12 +23,11 @@ public class ReportWriter {
 
     private final String outputPath;
     private final String queryMode;
-    private final int topK;
     private final int runsPerTestCase;
     private final String testCasesPath;
-    private final String runLabel;
-    private final String runParametersRaw;
+    private final String runLabelOverride;
 
+    private final OverrideEnvLoader overrideEnvLoader;
     private final JsonReportWriter jsonReportWriter;
     private final MarkdownReportWriter markdownReportWriter;
     private final HtmlReportWriter htmlReportWriter;
@@ -36,29 +35,44 @@ public class ReportWriter {
     public ReportWriter(
             @Value("${ragchecker.output.path}") String outputPath,
             @Value("${ragchecker.query.mode}") String queryMode,
-            @Value("${ragchecker.query.top-k}") int topK,
             @Value("${ragchecker.runs.per-testcase:1}") int runsPerTestCase,
             @Value("${ragchecker.testcases.path}") String testCasesPath,
-            @Value("${ragchecker.run.label:}") String runLabel,
-            @Value("${ragchecker.run.parameters:}") String runParametersRaw,
+            @Value("${ragchecker.run.label:}") String runLabelOverride,
+            OverrideEnvLoader overrideEnvLoader,
             JsonReportWriter jsonReportWriter,
             MarkdownReportWriter markdownReportWriter,
             HtmlReportWriter htmlReportWriter
     ) {
         this.outputPath = outputPath;
         this.queryMode = queryMode;
-        this.topK = topK;
         this.runsPerTestCase = runsPerTestCase;
         this.testCasesPath = testCasesPath;
-        this.runLabel = runLabel;
-        this.runParametersRaw = runParametersRaw;
+        this.runLabelOverride = runLabelOverride;
+        this.overrideEnvLoader = overrideEnvLoader;
         this.jsonReportWriter = jsonReportWriter;
         this.markdownReportWriter = markdownReportWriter;
         this.htmlReportWriter = htmlReportWriter;
     }
 
     public void write(List<AggregatedEvalResult> results) {
-        Map<String, String> runParameters = parseParameters(runParametersRaw);
+        Map<String, String> overrideParams = overrideEnvLoader.load();
+
+        // label: RAGCHECKER_RUN_LABEL hat Vorrang, sonst "label" aus override.env
+        String runLabel = (runLabelOverride != null && !runLabelOverride.isBlank())
+                ? runLabelOverride
+                : overrideParams.getOrDefault("label", "");
+
+        // runParameters: alle Werte aus override.env außer "label"
+        Map<String, String> runParameters = new LinkedHashMap<>(overrideParams);
+        runParameters.remove("label");
+
+        // topK aus override.env (für den Report-Header), fallback 0
+        int topK = 0;
+        String topKStr = overrideParams.get("top_k");
+        if (topKStr != null) {
+            try { topK = Integer.parseInt(topKStr); } catch (NumberFormatException ignored) {}
+        }
+
         ReportData data = ReportData.of(results, runLabel, runParameters,
                 queryMode, topK, runsPerTestCase, testCasesPath);
 
@@ -89,15 +103,4 @@ public class ReportWriter {
         }
     }
 
-    private Map<String, String> parseParameters(String raw) {
-        Map<String, String> map = new LinkedHashMap<>();
-        if (raw == null || raw.isBlank()) return map;
-        for (String pair : raw.split(",")) {
-            String[] kv = pair.split("=", 2);
-            if (kv.length == 2) {
-                map.put(kv[0].trim(), kv[1].trim());
-            }
-        }
-        return map;
-    }
 }
