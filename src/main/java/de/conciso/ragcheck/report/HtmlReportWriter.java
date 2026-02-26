@@ -11,6 +11,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -45,7 +47,7 @@ public class HtmlReportWriter {
         if (data.runLabel() != null && !data.runLabel().isBlank()) {
             sb.append(cfgItem("Run-Label", data.runLabel()));
         }
-        sb.append(cfgItem("Query Mode", data.queryMode()));
+        sb.append(cfgItem("Query Modes", String.join(", ", data.queryModes())));
         sb.append(cfgItem("Top-K", String.valueOf(data.topK())));
         sb.append(cfgItem("Läufe", String.valueOf(data.runsPerTestCase())));
         sb.append(cfgItem("Testfälle", data.testCasesPath()));
@@ -69,6 +71,9 @@ public class HtmlReportWriter {
         sb.append(card("Ø MRR", data.avgLlmMrr()));
         sb.append("</div>\n</section>\n");
 
+        // Mode comparison (only if more than one mode)
+        appendModeComparisonSection(sb, data.results());
+
         // Bar chart
         sb.append("<section>\n<h2>Metriken je Testfall</h2>\n");
         sb.append("<div class=\"chart-wrap\"><canvas id=\"chart\"></canvas></div>\n</section>\n");
@@ -86,12 +91,12 @@ public class HtmlReportWriter {
         // Results tables
         sb.append("<section>\n<h2>Ergebnisse — Graph-Retrieval</h2>\n");
         sb.append("<table><thead><tr>");
-        sb.append("<th>ID</th><th>Status</th><th>MRR</th><th>±σ</th><th>NDCG@k</th><th>±σ</th><th>Recall@k</th><th>±σ</th>");
+        sb.append("<th>Mode</th><th>ID</th><th>Status</th><th>MRR</th><th>±σ</th><th>NDCG@k</th><th>±σ</th><th>Recall@k</th><th>±σ</th>");
         sb.append("</tr></thead><tbody>\n");
         for (AggregatedEvalResult r : data.results()) {
             sb.append(String.format(
-                    "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td></tr>%n",
-                    rc(r.graphMetrics().avgMrr()), escape(r.testCaseId()), emoji(r.graphMetrics().avgMrr()),
+                    "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%s</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td></tr>%n",
+                    rc(r.graphMetrics().avgMrr()), escape(r.queryMode()), escape(r.testCaseId()), emoji(r.graphMetrics().avgMrr()),
                     r.graphMetrics().avgMrr(), r.graphMetrics().stdDevMrr(),
                     r.graphMetrics().avgNdcgAtK(), r.graphMetrics().stdDevNdcgAtK(),
                     r.graphMetrics().avgRecallAtK(), r.graphMetrics().stdDevRecallAtK()));
@@ -100,12 +105,12 @@ public class HtmlReportWriter {
 
         sb.append("<section>\n<h2>Ergebnisse — LLM</h2>\n");
         sb.append("<table><thead><tr>");
-        sb.append("<th>ID</th><th>Status</th><th>Recall</th><th>±σ</th><th>Precision</th><th>±σ</th><th>F1</th><th>±σ</th><th>Hit-Rate</th><th>MRR</th>");
+        sb.append("<th>Mode</th><th>ID</th><th>Status</th><th>Recall</th><th>±σ</th><th>Precision</th><th>±σ</th><th>F1</th><th>±σ</th><th>Hit-Rate</th><th>MRR</th>");
         sb.append("</tr></thead><tbody>\n");
         for (AggregatedEvalResult r : data.results()) {
             sb.append(String.format(
-                    "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td>%.2f</td></tr>%n",
-                    rc(r.llmMetrics().avgF1()), escape(r.testCaseId()), emoji(r.llmMetrics().avgF1()),
+                    "<tr class=\"%s\"><td>%s</td><td>%s</td><td>%s</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td>%.2f</td></tr>%n",
+                    rc(r.llmMetrics().avgF1()), escape(r.queryMode()), escape(r.testCaseId()), emoji(r.llmMetrics().avgF1()),
                     r.llmMetrics().avgRecall(), r.llmMetrics().stdDevRecall(),
                     r.llmMetrics().avgPrecision(), r.llmMetrics().stdDevPrecision(),
                     r.llmMetrics().avgF1(), r.llmMetrics().stdDevF1(),
@@ -117,6 +122,7 @@ public class HtmlReportWriter {
         sb.append("<section>\n<h2>Details</h2>\n");
         for (AggregatedEvalResult r : data.results()) {
             sb.append("<details>\n<summary><strong>").append(escape(r.testCaseId()))
+                    .append(" / ").append(escape(r.queryMode()))
                     .append("</strong> — Graph MRR: ").append(String.format("%.2f", r.graphMetrics().avgMrr()))
                     .append(" &nbsp; LLM F1: ").append(String.format("%.2f", r.llmMetrics().avgF1()))
                     .append("</summary>\n<div class=\"db\">\n");
@@ -184,8 +190,53 @@ public class HtmlReportWriter {
         return sb.toString();
     }
 
+    private void appendModeComparisonSection(StringBuilder sb, List<AggregatedEvalResult> results) {
+        Map<String, List<AggregatedEvalResult>> byMode = new LinkedHashMap<>();
+        for (AggregatedEvalResult r : results) {
+            byMode.computeIfAbsent(r.queryMode(), k -> new ArrayList<>()).add(r);
+        }
+        if (byMode.size() <= 1) return;
+
+        double bestLlmF1       = byMode.values().stream().flatMap(List::stream).mapToDouble(r -> r.llmMetrics().avgF1()).max().orElse(0);
+        double bestGraphRecall = byMode.values().stream().flatMap(List::stream).mapToDouble(r -> r.graphMetrics().avgRecallAtK()).max().orElse(0);
+
+        sb.append("<section>\n<h2>Modus-Vergleich</h2>\n");
+        sb.append("<p class=\"sub\">Ø über alle Testfälle. ★ = bester Modus in der jeweiligen Hauptmetrik.</p>\n");
+
+        // Graph table
+        sb.append("<h3>Graph-Retrieval</h3>\n");
+        sb.append("<table><thead><tr><th>Mode</th><th>Ø MRR</th><th>Ø NDCG@k</th><th>Ø Recall@k</th></tr></thead><tbody>\n");
+        byMode.forEach((mode, rs) -> {
+            double mrr    = rs.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).average().orElse(0);
+            double ndcg   = rs.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).average().orElse(0);
+            double recall = rs.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).average().orElse(0);
+            boolean best  = Math.abs(recall - bestGraphRecall) < 0.001;
+            String rowCls = best ? " class=\"best-mode\"" : "";
+            sb.append(String.format("<tr%s><td><strong>%s</strong>%s</td><td>%.2f</td><td>%.2f</td><td>%.2f</td></tr>%n",
+                    rowCls, escape(mode), best ? " ★" : "", mrr, ndcg, recall));
+        });
+        sb.append("</tbody></table>\n");
+
+        // LLM table
+        sb.append("<h3>LLM</h3>\n");
+        sb.append("<table><thead><tr><th>Mode</th><th>Ø Recall</th><th>Ø Precision</th><th>Ø F1</th><th>Ø Hit-Rate</th><th>Ø MRR</th></tr></thead><tbody>\n");
+        byMode.forEach((mode, rs) -> {
+            double recall = rs.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).average().orElse(0);
+            double prec   = rs.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).average().orElse(0);
+            double f1     = rs.stream().mapToDouble(r -> r.llmMetrics().avgF1()).average().orElse(0);
+            double hit    = rs.stream().mapToDouble(r -> r.llmMetrics().hitRate()).average().orElse(0);
+            double mrr    = rs.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).average().orElse(0);
+            boolean best  = Math.abs(f1 - bestLlmF1) < 0.001;
+            String rowCls = best ? " class=\"best-mode\"" : "";
+            sb.append(String.format("<tr%s><td><strong>%s</strong>%s</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%.2f</td></tr>%n",
+                    rowCls, escape(mode), best ? " ★" : "", recall, prec, f1, hit, mrr));
+        });
+        sb.append("</tbody></table>\n");
+        sb.append("</section>\n");
+    }
+
     private String chartScript(ReportData data) {
-        String labels     = join(data.results(), r -> "\"" + r.testCaseId().replace("\"", "\\\"") + "\"");
+        String labels     = join(data.results(), r -> "\"" + (r.testCaseId() + " / " + r.queryMode()).replace("\"", "\\\"") + "\"");
         String graphMrr   = join(data.results(), r -> fmt(r.graphMetrics().avgMrr()));
         String graphNdcg  = join(data.results(), r -> fmt(r.graphMetrics().avgNdcgAtK()));
         String graphRec   = join(data.results(), r -> fmt(r.graphMetrics().avgRecallAtK()));
@@ -210,8 +261,8 @@ public class HtmlReportWriter {
     }
 
     private String boxplotScript(ReportData data) {
-        // Labels: Testfall-IDs
-        String labels = join(data.results(), r -> "\"" + r.testCaseId().replace("\"", "\\\"") + "\"");
+        // Labels: Testfall-ID / Mode
+        String labels = join(data.results(), r -> "\"" + (r.testCaseId() + " / " + r.queryMode()).replace("\"", "\\\"") + "\"");
 
         // Für jeden Testfall: Array der Lauf-Werte → [[run1,run2,...], [run1,run2,...], ...]
         String graphMrrData    = bpData(data.results(), r -> r.graphRuns().stream()
@@ -279,6 +330,7 @@ public class HtmlReportWriter {
                   thead { background: #333; color: #fff; }
                   td.m { color: #999; font-size: .85rem; }
                   tr.good { background: #e8f5e9; } tr.warn { background: #fff8e1; } tr.bad { background: #ffebee; }
+                  tr.best-mode { background: #e8f5e9; font-weight: 600; }
                   details { background: #fff; border: 1px solid #ddd; border-radius: 6px; margin-bottom: .75rem; }
                   summary { padding: .6rem 1rem; cursor: pointer; }
                   .db { padding: .5rem 1rem 1rem; }

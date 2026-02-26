@@ -10,7 +10,7 @@ public record ReportData(
         Instant timestamp,
         String runLabel,
         Map<String, String> runParameters,
-        String queryMode,
+        List<String> queryModes,
         int topK,
         int runsPerTestCase,
         String testCasesPath,
@@ -28,7 +28,7 @@ public record ReportData(
 ) {
     public static ReportData of(List<AggregatedEvalResult> results,
                                 String runLabel, Map<String, String> runParameters,
-                                String queryMode, int topK, int runsPerTestCase,
+                                List<String> queryModes, int topK, int runsPerTestCase,
                                 String testCasesPath) {
         double avgGraphMrr      = results.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).average().orElse(0.0);
         double avgGraphNdcg     = results.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).average().orElse(0.0);
@@ -39,7 +39,7 @@ public record ReportData(
         double avgLlmHitRate    = results.stream().mapToDouble(r -> r.llmMetrics().hitRate()).average().orElse(0.0);
         double avgLlmMrr        = results.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).average().orElse(0.0);
 
-        return new ReportData(Instant.now(), runLabel, runParameters, queryMode, topK,
+        return new ReportData(Instant.now(), runLabel, runParameters, queryModes, topK,
                 runsPerTestCase, testCasesPath, results,
                 avgGraphMrr, avgGraphNdcg, avgGraphRecall,
                 avgLlmRecall, avgLlmPrecision, avgLlmF1, avgLlmHitRate, avgLlmMrr);

@@ -22,7 +22,7 @@ public class ReportWriter {
     private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
     private final String outputPath;
-    private final String queryMode;
+    private final List<String> queryModes;
     private final int runsPerTestCase;
     private final String testCasesPath;
     private final String runLabelOverride;
@@ -34,7 +34,7 @@ public class ReportWriter {
 
     public ReportWriter(
             @Value("${ragchecker.output.path}") String outputPath,
-            @Value("${ragchecker.query.mode}") String queryMode,
+            @Value("${ragchecker.query.modes}") String queryModesStr,
             @Value("${ragchecker.runs.per-testcase:1}") int runsPerTestCase,
             @Value("${ragchecker.testcases.path}") String testCasesPath,
             @Value("${ragchecker.run.label:}") String runLabelOverride,
@@ -44,7 +44,7 @@ public class ReportWriter {
             HtmlReportWriter htmlReportWriter
     ) {
         this.outputPath = outputPath;
-        this.queryMode = queryMode;
+        this.queryModes = List.of(queryModesStr.split(","));
         this.runsPerTestCase = runsPerTestCase;
         this.testCasesPath = testCasesPath;
         this.runLabelOverride = runLabelOverride;
@@ -62,19 +62,20 @@ public class ReportWriter {
                 ? runLabelOverride
                 : overrideParams.getOrDefault("label", "");
 
-        // runParameters: alle Werte aus override.env außer "label"
-        Map<String, String> runParameters = new LinkedHashMap<>(overrideParams);
-        runParameters.remove("label");
-
         // topK aus override.env (für den Report-Header), fallback 0
         int topK = 0;
         String topKStr = overrideParams.get("top_k");
         if (topKStr != null) {
-            try { topK = Integer.parseInt(topKStr); } catch (NumberFormatException ignored) {}
+            try { topK = Integer.parseInt(topKStr.trim()); } catch (NumberFormatException ignored) {}
         }
 
+        // runParameters: alle Werte aus override.env außer "label" und "top_k"
+        Map<String, String> runParameters = new LinkedHashMap<>(overrideParams);
+        runParameters.remove("label");
+        runParameters.remove("top_k");
+
         ReportData data = ReportData.of(results, runLabel, runParameters,
-                queryMode, topK, runsPerTestCase, testCasesPath);
+                queryModes, topK, runsPerTestCase, testCasesPath);
 
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
         String baseName = (runLabel != null && !runLabel.isBlank())

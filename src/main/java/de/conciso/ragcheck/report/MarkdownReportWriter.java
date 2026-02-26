@@ -11,6 +11,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -36,7 +38,7 @@ public class MarkdownReportWriter {
             data.runParameters().forEach((k, v) ->
                     sb.append("| ").append(k).append(" | ").append(v).append(" |\n"));
         }
-        sb.append("| Query Mode | ").append(data.queryMode()).append(" |\n");
+        sb.append("| Query Modes | ").append(String.join(", ", data.queryModes())).append(" |\n");
         sb.append("| Top-K | ").append(data.topK()).append(" |\n");
         sb.append("| Läufe je Testfall | ").append(data.runsPerTestCase()).append(" |\n");
         sb.append("| Testfälle | ").append(data.testCasesPath()).append(" |\n\n");
@@ -59,14 +61,19 @@ public class MarkdownReportWriter {
         sb.append(String.format("| Ø MRR | %.2f |%n", data.avgLlmMrr()));
         sb.append("\n");
 
+        // Modus-Vergleich
+        sb.append("## Modus-Vergleich\n\n");
+        appendModeComparison(sb, data.results());
+        sb.append("\n");
+
         // Ergebnis-Tabellen
         sb.append("## Ergebnisse\n\n");
         sb.append("### Graph-Retrieval\n\n");
-        sb.append("| ID | Status | MRR | ±σ | NDCG@k | ±σ | Recall@k | ±σ |\n");
-        sb.append("|---|---|---|---|---|---|---|---|\n");
+        sb.append("| Mode | ID | Status | MRR | ±σ | NDCG@k | ±σ | Recall@k | ±σ |\n");
+        sb.append("|---|---|---|---|---|---|---|---|---|\n");
         for (AggregatedEvalResult r : data.results()) {
-            sb.append(String.format("| %s | %s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
-                    r.testCaseId(), statusEmoji(r.graphMetrics().avgMrr()),
+            sb.append(String.format("| %s | %s | %s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
+                    r.queryMode(), r.testCaseId(), statusEmoji(r.graphMetrics().avgMrr()),
                     r.graphMetrics().avgMrr(), r.graphMetrics().stdDevMrr(),
                     r.graphMetrics().avgNdcgAtK(), r.graphMetrics().stdDevNdcgAtK(),
                     r.graphMetrics().avgRecallAtK(), r.graphMetrics().stdDevRecallAtK()));
@@ -74,11 +81,11 @@ public class MarkdownReportWriter {
         sb.append("\n");
 
         sb.append("### LLM\n\n");
-        sb.append("| ID | Status | Recall | ±σ | Precision | ±σ | F1 | ±σ | Hit-Rate | MRR |\n");
-        sb.append("|---|---|---|---|---|---|---|---|---|---|\n");
+        sb.append("| Mode | ID | Status | Recall | ±σ | Precision | ±σ | F1 | ±σ | Hit-Rate | MRR |\n");
+        sb.append("|---|---|---|---|---|---|---|---|---|---|---|\n");
         for (AggregatedEvalResult r : data.results()) {
-            sb.append(String.format("| %s | %s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
-                    r.testCaseId(), statusEmoji(r.llmMetrics().avgF1()),
+            sb.append(String.format("| %s | %s | %s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
+                    r.queryMode(), r.testCaseId(), statusEmoji(r.llmMetrics().avgF1()),
                     r.llmMetrics().avgRecall(), r.llmMetrics().stdDevRecall(),
                     r.llmMetrics().avgPrecision(), r.llmMetrics().stdDevPrecision(),
                     r.llmMetrics().avgF1(), r.llmMetrics().stdDevF1(),
@@ -89,7 +96,7 @@ public class MarkdownReportWriter {
         // Details
         sb.append("## Details\n\n");
         for (AggregatedEvalResult r : data.results()) {
-            sb.append("### ").append(r.testCaseId()).append("\n\n");
+            sb.append("### ").append(r.testCaseId()).append(" / ").append(r.queryMode()).append("\n\n");
             sb.append("**Prompt:** ").append(r.prompt()).append("\n\n");
             sb.append("**Erwartet:** ").append(String.join(", ", r.expectedDocuments())).append("\n\n");
 
@@ -133,6 +140,41 @@ public class MarkdownReportWriter {
         }
 
         Files.writeString(path, sb.toString(), StandardCharsets.UTF_8);
+    }
+
+    private void appendModeComparison(StringBuilder sb, List<AggregatedEvalResult> results) {
+        Map<String, List<AggregatedEvalResult>> byMode = new LinkedHashMap<>();
+        for (AggregatedEvalResult r : results) {
+            byMode.computeIfAbsent(r.queryMode(), k -> new ArrayList<>()).add(r);
+        }
+        if (byMode.size() <= 1) return;
+
+        double bestLlmF1      = byMode.values().stream().flatMap(List::stream).mapToDouble(r -> r.llmMetrics().avgF1()).max().orElse(0);
+        double bestGraphRecall = byMode.values().stream().flatMap(List::stream).mapToDouble(r -> r.graphMetrics().avgRecallAtK()).max().orElse(0);
+
+        sb.append("### Graph-Retrieval\n\n");
+        sb.append("| Mode | Ø MRR | Ø NDCG@k | Ø Recall@k |\n|---|---|---|---|\n");
+        byMode.forEach((mode, rs) -> {
+            double mrr    = rs.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).average().orElse(0);
+            double ndcg   = rs.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).average().orElse(0);
+            double recall = rs.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).average().orElse(0);
+            boolean best  = Math.abs(recall - bestGraphRecall) < 0.001;
+            sb.append(String.format("| %s%s | %.2f | %.2f | %.2f |%n",
+                    mode, best ? " ★" : "", mrr, ndcg, recall));
+        });
+
+        sb.append("\n### LLM\n\n");
+        sb.append("| Mode | Ø Recall | Ø Precision | Ø F1 | Ø Hit-Rate | Ø MRR |\n|---|---|---|---|---|---|\n");
+        byMode.forEach((mode, rs) -> {
+            double recall = rs.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).average().orElse(0);
+            double prec   = rs.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).average().orElse(0);
+            double f1     = rs.stream().mapToDouble(r -> r.llmMetrics().avgF1()).average().orElse(0);
+            double hit    = rs.stream().mapToDouble(r -> r.llmMetrics().hitRate()).average().orElse(0);
+            double mrr    = rs.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).average().orElse(0);
+            boolean best  = Math.abs(f1 - bestLlmF1) < 0.001;
+            sb.append(String.format("| **%s**%s | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
+                    mode, best ? " ★" : "", recall, prec, f1, hit, mrr));
+        });
     }
 
     private String statusEmoji(double v) {

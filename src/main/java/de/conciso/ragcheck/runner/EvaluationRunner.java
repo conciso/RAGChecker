@@ -13,6 +13,8 @@ import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -47,51 +49,68 @@ public class EvaluationRunner implements CommandLineRunner {
 
     // -------------------------------------------------------------------------
 
+    private record ModeStat(
+            String mode,
+            double graphMrr, double graphNdcg, double graphRecall,
+            double llmRecall, double llmPrec, double llmF1, double llmHit, double llmMrr
+    ) {}
+
     private void printSummary(List<AggregatedEvalResult> results) {
-        String sep = "-".repeat(90);
-        System.out.println();
-        System.out.println("=== RAGChecker Summary ===");
-
-        System.out.println();
-        System.out.println("-- Graph-Retrieval (/query/data) --");
-        System.out.printf("%-12s %8s %8s %10s %10s %12s %12s%n",
-                "ID", "MRR", "±σ", "NDCG@k", "±σ", "Recall@k", "±σ");
-        System.out.println(sep);
+        // Group by mode, preserving order of first occurrence
+        Map<String, List<AggregatedEvalResult>> byMode = new LinkedHashMap<>();
         for (AggregatedEvalResult r : results) {
-            System.out.printf("%-12s %8.2f %8.2f %10.2f %10.2f %12.2f %12.2f%n",
-                    r.testCaseId(),
-                    r.graphMetrics().avgMrr(),       r.graphMetrics().stdDevMrr(),
-                    r.graphMetrics().avgNdcgAtK(),   r.graphMetrics().stdDevNdcgAtK(),
-                    r.graphMetrics().avgRecallAtK(), r.graphMetrics().stdDevRecallAtK());
+            byMode.computeIfAbsent(r.queryMode(), k -> new ArrayList<>()).add(r);
         }
-        System.out.println(sep);
-        System.out.printf("%-12s %8.2f %8s %10.2f %10s %12.2f%n", "AVG",
-                results.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).average().orElse(0),
-                "",
-                results.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).average().orElse(0),
-                "",
-                results.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).average().orElse(0));
 
+        List<ModeStat> stats = byMode.entrySet().stream().map(e -> {
+            var rs = e.getValue();
+            return new ModeStat(e.getKey(),
+                    rs.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).average().orElse(0),
+                    rs.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).average().orElse(0),
+                    rs.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).average().orElse(0),
+                    rs.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).average().orElse(0),
+                    rs.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).average().orElse(0),
+                    rs.stream().mapToDouble(r -> r.llmMetrics().avgF1()).average().orElse(0),
+                    rs.stream().mapToDouble(r -> r.llmMetrics().hitRate()).average().orElse(0),
+                    rs.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).average().orElse(0));
+        }).toList();
+
+        long tcCount = results.stream().map(AggregatedEvalResult::testCaseId).distinct().count();
+        int runsPerMode = byMode.values().stream().findFirst().map(List::size).orElse(0);
+        String sep = "-".repeat(72);
+
+        System.out.println();
+        System.out.printf("=== RAGChecker Summary — %d Testfall/Testfälle × %d Modi × %d Läufe ===%n",
+                tcCount, byMode.size(), runsPerMode > 0 ? results.get(0).runs() : 0);
+        System.out.println();
+
+        // --- Graph ---
+        double bestGraphRecall = stats.stream().mapToDouble(ModeStat::graphRecall).max().orElse(0);
+        System.out.println("-- Graph-Retrieval (/query/data) --");
+        System.out.printf("%-10s %8s %10s %12s%n", "Mode", "Ø MRR", "Ø NDCG@k", "Ø Recall@k");
+        System.out.println(sep);
+        for (ModeStat s : stats) {
+            boolean best = Math.abs(s.graphRecall() - bestGraphRecall) < 0.001;
+            System.out.printf("%-10s %8.2f %10.2f %12.2f%s%n",
+                    s.mode(), s.graphMrr(), s.graphNdcg(), s.graphRecall(),
+                    best ? "  ★" : "");
+        }
+
+        // --- LLM ---
+        double bestLlmF1 = stats.stream().mapToDouble(ModeStat::llmF1).max().orElse(0);
         System.out.println();
         System.out.println("-- LLM (/query) --");
-        System.out.printf("%-12s %8s %8s %10s %10s %8s %8s %8s %8s%n",
-                "ID", "Recall", "±σ", "Precision", "±σ", "F1", "±σ", "Hit%", "MRR");
+        System.out.printf("%-10s %8s %11s %8s %8s %8s%n",
+                "Mode", "Ø Recall", "Ø Precision", "Ø F1", "Hit%", "Ø MRR");
         System.out.println(sep);
-        for (AggregatedEvalResult r : results) {
-            System.out.printf("%-12s %8.2f %8.2f %10.2f %10.2f %8.2f %8.2f %8.2f %8.2f%n",
-                    r.testCaseId(),
-                    r.llmMetrics().avgRecall(),    r.llmMetrics().stdDevRecall(),
-                    r.llmMetrics().avgPrecision(), r.llmMetrics().stdDevPrecision(),
-                    r.llmMetrics().avgF1(),        r.llmMetrics().stdDevF1(),
-                    r.llmMetrics().hitRate(),      r.llmMetrics().avgMrr());
+        for (ModeStat s : stats) {
+            boolean best = Math.abs(s.llmF1() - bestLlmF1) < 0.001;
+            System.out.printf("%-10s %8.2f %11.2f %8.2f %8.2f %8.2f%s%n",
+                    s.mode(), s.llmRecall(), s.llmPrec(), s.llmF1(),
+                    s.llmHit(), s.llmMrr(),
+                    best ? "  ★ bester Mode" : "");
         }
         System.out.println(sep);
-        System.out.printf("%-12s %8.2f %8s %10.2f %8s %8.2f %8s %8.2f %8.2f%n", "AVG",
-                results.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).average().orElse(0), "",
-                results.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).average().orElse(0), "",
-                results.stream().mapToDouble(r -> r.llmMetrics().avgF1()).average().orElse(0), "",
-                results.stream().mapToDouble(r -> r.llmMetrics().hitRate()).average().orElse(0),
-                results.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).average().orElse(0));
         System.out.println();
     }
 

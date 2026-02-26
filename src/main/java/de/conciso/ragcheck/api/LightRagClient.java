@@ -28,20 +28,17 @@ public class LightRagClient {
             Pattern.compile("^[-*]?\\s*\\[(\\d+)]\\s*(.+?)\\s*$", Pattern.MULTILINE);
 
     private final RestClient restClient;
-    private final String queryMode;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public LightRagClient(
             @Value("${ragchecker.lightrag.url}") String baseUrl,
-            @Value("${ragchecker.lightrag.api-key}") String apiKey,
-            @Value("${ragchecker.query.mode}") String queryMode
+            @Value("${ragchecker.lightrag.api-key}") String apiKey
     ) {
         RestClient.Builder builder = RestClient.builder().baseUrl(baseUrl);
         if (apiKey != null && !apiKey.isBlank()) {
             builder.defaultHeader("X-API-Key", apiKey);
         }
         this.restClient = builder.build();
-        this.queryMode = queryMode;
     }
 
     /**
@@ -49,12 +46,12 @@ public class LightRagClient {
      * Gibt die referenzierten Dokumente in Reihenfolge zurück (Position = Relevanz-Rang).
      * Kein LLM-Aufruf — schnell.
      */
-    public List<String> queryData(String prompt) {
+    public List<String> queryData(String prompt, String mode) {
         QueryDataResponse response = restClient.post()
                 .uri("/query/data")
                 .body(Map.of(
                         "query", prompt,
-                        "mode", queryMode,
+                        "mode", mode,
                         "include_references", true
                 ))
                 .retrieve()
@@ -121,12 +118,12 @@ public class LightRagClient {
      * Läuft das vollständige RAG-Pipeline inkl. LLM — dauert 30–60 s.
      * Gibt den Antworttext und die darin zitierten Dokumente zurück.
      */
-    public LlmResponse queryLlm(String prompt) {
+    public LlmResponse queryLlm(String prompt, String mode) {
         String raw = restClient.post()
                 .uri("/query")
                 .body(Map.of(
                         "query", prompt,
-                        "mode", queryMode,
+                        "mode", mode,
                         "stream", false
                 ))
                 .retrieve()

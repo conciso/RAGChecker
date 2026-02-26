@@ -105,7 +105,7 @@ public class ComparisonRunner implements CommandLineRunner {
         Map<String, Object> config = (Map<String, Object>) root.getOrDefault("configuration", Map.of());
         String runLabel      = (String) config.getOrDefault("runLabel", "");
         Map<String, String> runParameters = parseRunParameters(config.get("runParameters"));
-        String queryMode     = (String) config.getOrDefault("queryMode", "");
+        String queryMode     = parseQueryModes(config);
         int topK             = toInt(config.getOrDefault("topK", 0));
         int runsPerTestCase  = toInt(config.getOrDefault("runsPerTestCase", 1));
 
@@ -156,6 +156,17 @@ public class ComparisonRunner implements CommandLineRunner {
                 tcGraphMrr, tcGraphNdcg, tcGraphRecall,
                 tcLlmRecall, tcLlmPrecision, tcLlmF1, tcLlmHitRate, tcLlmMrr
         );
+    }
+
+    @SuppressWarnings("unchecked")
+    private String parseQueryModes(Map<String, Object> config) {
+        Object raw = config.get("queryModes");
+        if (raw instanceof List<?> list) {
+            return list.stream().map(Object::toString).collect(java.util.stream.Collectors.joining(", "));
+        }
+        // Fallback: altes Format mit "queryMode" (einzelner String)
+        Object legacy = config.get("queryMode");
+        return legacy instanceof String s ? s : "";
     }
 
     @SuppressWarnings("unchecked")

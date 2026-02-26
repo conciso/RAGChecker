@@ -30,7 +30,7 @@ public class JsonReportWriter {
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("runLabel", data.runLabel());
         config.put("runParameters", data.runParameters());
-        config.put("queryMode", data.queryMode());
+        config.put("queryModes", data.queryModes());
         config.put("topK", data.topK());
         config.put("runsPerTestCase", data.runsPerTestCase());
         config.put("testCasesPath", data.testCasesPath());
@@ -66,6 +66,7 @@ public class JsonReportWriter {
     private Map<String, Object> resultToMap(AggregatedEvalResult r) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("id", r.testCaseId());
+        entry.put("queryMode", r.queryMode());
         entry.put("prompt", r.prompt());
         entry.put("expectedDocuments", r.expectedDocuments());
         entry.put("runs", r.runs());

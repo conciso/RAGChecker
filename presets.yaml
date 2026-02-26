@@ -1,0 +1,22 @@
+# RAGChecker Presets
+# Jeder Eintrag definiert einen Parametersatz für einen Testlauf.
+# Felder:
+#   label          – eindeutiger Name des Presets (wird als Run-Label verwendet)
+#   top_k          – wird als dediziertes "Top-K"-Feld im Report angezeigt
+#   alle anderen   – erscheinen als "Parameter" im Report
+#   run_parameters – wird ignoriert (redundante Ableitung für andere Tools)
+#
+# Verwendung:
+#   RAGCHECKER_PRESETS_PATH=presets.yaml
+#   RAGCHECKER_PRESET=prio1-cosine-topk
+
+- label: "prio1-cosine-topk"
+  cosine: "0.2"
+  top_k: "25"
+  chunk_top_k: "10"
+  entity_tokens: "6000"
+  relation_tokens: "6000"
+  related_chunks: "10"
+  kg_method: "VECTOR"
+  rerank: "null"
+  rerank_score: "0.2"
