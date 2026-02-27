@@ -22,6 +22,7 @@ public class ReportWriter {
     private static final DateTimeFormatter TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
     private final String outputPath;
+    private final String runGroup;
     private final List<String> queryModes;
     private final int runsPerTestCase;
     private final String testCasesPath;
@@ -34,6 +35,7 @@ public class ReportWriter {
 
     public ReportWriter(
             @Value("${ragchecker.output.path}") String outputPath,
+            @Value("${ragchecker.run.group:}") String runGroup,
             @Value("${ragchecker.query.modes}") String queryModesStr,
             @Value("${ragchecker.runs.per-testcase:1}") int runsPerTestCase,
             @Value("${ragchecker.testcases.path}") String testCasesPath,
@@ -44,6 +46,7 @@ public class ReportWriter {
             HtmlReportWriter htmlReportWriter
     ) {
         this.outputPath = outputPath;
+        this.runGroup = runGroup;
         this.queryModes = List.of(queryModesStr.split(","));
         this.runsPerTestCase = runsPerTestCase;
         this.testCasesPath = testCasesPath;
@@ -83,8 +86,12 @@ public class ReportWriter {
                 : "ragcheck_" + timestamp;
 
         try {
-            // Dateien kommen in ein Unterverzeichnis <outputPath>/<baseName>/
-            Path dir = Path.of(outputPath).resolve(baseName);
+            // Dateien kommen in <outputPath>/[<runGroup>/]<baseName>/
+            Path base = Path.of(outputPath);
+            if (runGroup != null && !runGroup.isBlank()) {
+                base = base.resolve(runGroup);
+            }
+            Path dir = base.resolve(baseName);
             Files.createDirectories(dir);
 
             Path jsonPath = dir.resolve(baseName + ".json");

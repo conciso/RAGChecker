@@ -46,19 +46,19 @@ public class MarkdownReportWriter {
         // Zusammenfassung
         sb.append("## Zusammenfassung\n\n");
         sb.append("### Graph-Retrieval (`/query/data`)\n\n");
-        sb.append("| Metrik | Wert |\n|---|---|\n");
-        sb.append(String.format("| Ø MRR | %.2f |%n", data.avgGraphMrr()));
-        sb.append(String.format("| Ø NDCG@k | %.2f |%n", data.avgGraphNdcgAtK()));
-        sb.append(String.format("| Ø Recall@k | %.2f |%n", data.avgGraphRecallAtK()));
+        sb.append("| Metrik | Ø | ±σ |\n|---|---|---|\n");
+        sb.append(String.format("| Ø MRR | %.2f | %.2f |%n", data.avgGraphMrr(), data.stdDevGraphMrr()));
+        sb.append(String.format("| Ø NDCG@k | %.2f | %.2f |%n", data.avgGraphNdcgAtK(), data.stdDevGraphNdcgAtK()));
+        sb.append(String.format("| Ø Recall@k | %.2f | %.2f |%n", data.avgGraphRecallAtK(), data.stdDevGraphRecallAtK()));
         sb.append("\n");
 
         sb.append("### LLM (`/query`)\n\n");
-        sb.append("| Metrik | Wert |\n|---|---|\n");
-        sb.append(String.format("| Ø Recall | %.2f |%n", data.avgLlmRecall()));
-        sb.append(String.format("| Ø Precision | %.2f |%n", data.avgLlmPrecision()));
-        sb.append(String.format("| Ø F1 | %.2f |%n", data.avgLlmF1()));
-        sb.append(String.format("| Ø Hit-Rate | %.2f |%n", data.avgLlmHitRate()));
-        sb.append(String.format("| Ø MRR | %.2f |%n", data.avgLlmMrr()));
+        sb.append("| Metrik | Ø | ±σ |\n|---|---|---|\n");
+        sb.append(String.format("| Ø Recall | %.2f | %.2f |%n", data.avgLlmRecall(), data.stdDevLlmRecall()));
+        sb.append(String.format("| Ø Precision | %.2f | %.2f |%n", data.avgLlmPrecision(), data.stdDevLlmPrecision()));
+        sb.append(String.format("| Ø F1 | %.2f | %.2f |%n", data.avgLlmF1(), data.stdDevLlmF1()));
+        sb.append(String.format("| Ø Hit-Rate | %.2f | %.2f |%n", data.avgLlmHitRate(), data.stdDevLlmHitRate()));
+        sb.append(String.format("| Ø MRR | %.2f | %.2f |%n", data.avgLlmMrr(), data.stdDevLlmMrr()));
         sb.append("\n");
 
         // Modus-Vergleich
@@ -190,28 +190,42 @@ public class MarkdownReportWriter {
         double bestGraphRecall = byMode.values().stream().flatMap(List::stream).mapToDouble(r -> r.graphMetrics().avgRecallAtK()).max().orElse(0);
 
         sb.append("### Graph-Retrieval\n\n");
-        sb.append("| Mode | Ø MRR | Ø NDCG@k | Ø Recall@k |\n|---|---|---|---|\n");
+        sb.append("| Mode | Ø MRR | ±σ | Ø NDCG@k | ±σ | Ø Recall@k | ±σ |\n|---|---|---|---|---|---|---|\n");
         byMode.forEach((mode, rs) -> {
-            double mrr    = rs.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).average().orElse(0);
-            double ndcg   = rs.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).average().orElse(0);
-            double recall = rs.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).average().orElse(0);
+            double[] mrrArr    = rs.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).toArray();
+            double[] ndcgArr   = rs.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).toArray();
+            double[] recallArr = rs.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).toArray();
+            double recall = avg(recallArr);
             boolean best  = Math.abs(recall - bestGraphRecall) < 0.001;
-            sb.append(String.format("| %s%s | %.2f | %.2f | %.2f |%n",
-                    mode, best ? " ★" : "", mrr, ndcg, recall));
+            sb.append(String.format("| %s%s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
+                    mode, best ? " ★" : "",
+                    avg(mrrArr), ReportData.stdDev(mrrArr),
+                    avg(ndcgArr), ReportData.stdDev(ndcgArr),
+                    recall, ReportData.stdDev(recallArr)));
         });
 
         sb.append("\n### LLM\n\n");
-        sb.append("| Mode | Ø Recall | Ø Precision | Ø F1 | Ø Hit-Rate | Ø MRR |\n|---|---|---|---|---|---|\n");
+        sb.append("| Mode | Ø Recall | ±σ | Ø Precision | ±σ | Ø F1 | ±σ | Ø Hit-Rate | ±σ | Ø MRR | ±σ |\n|---|---|---|---|---|---|---|---|---|---|---|\n");
         byMode.forEach((mode, rs) -> {
-            double recall = rs.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).average().orElse(0);
-            double prec   = rs.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).average().orElse(0);
-            double f1     = rs.stream().mapToDouble(r -> r.llmMetrics().avgF1()).average().orElse(0);
-            double hit    = rs.stream().mapToDouble(r -> r.llmMetrics().hitRate()).average().orElse(0);
-            double mrr    = rs.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).average().orElse(0);
-            boolean best  = Math.abs(f1 - bestLlmF1) < 0.001;
-            sb.append(String.format("| **%s**%s | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
-                    mode, best ? " ★" : "", recall, prec, f1, hit, mrr));
+            double[] recallArr = rs.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).toArray();
+            double[] precArr   = rs.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).toArray();
+            double[] f1Arr     = rs.stream().mapToDouble(r -> r.llmMetrics().avgF1()).toArray();
+            double[] hitArr    = rs.stream().mapToDouble(r -> r.llmMetrics().hitRate()).toArray();
+            double[] mrrArr    = rs.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).toArray();
+            double f1    = avg(f1Arr);
+            boolean best = Math.abs(f1 - bestLlmF1) < 0.001;
+            sb.append(String.format("| **%s**%s | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f | %.2f |%n",
+                    mode, best ? " ★" : "",
+                    avg(recallArr), ReportData.stdDev(recallArr),
+                    avg(precArr),   ReportData.stdDev(precArr),
+                    f1,             ReportData.stdDev(f1Arr),
+                    avg(hitArr),    ReportData.stdDev(hitArr),
+                    avg(mrrArr),    ReportData.stdDev(mrrArr)));
         });
+    }
+
+    private static double avg(double[] values) {
+        return java.util.Arrays.stream(values).average().orElse(0.0);
     }
 
     private String statusEmoji(double v) {

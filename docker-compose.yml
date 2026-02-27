@@ -2,6 +2,9 @@ services:
   ragchecker:
     build: .
     env_file: .env
+    environment:
+      - RAGCHECKER_RUN_GROUP=${RAGCHECKER_RUN_GROUP:-}
+      - RAGCHECKER_RUN_LABEL=${RAGCHECKER_RUN_LABEL:-}
     volumes:
       - ./testcases:/app/testcases:ro
       - ./reports:/app/reports

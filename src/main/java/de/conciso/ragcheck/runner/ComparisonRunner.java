@@ -31,21 +31,28 @@ public class ComparisonRunner implements CommandLineRunner {
     private static final Logger log = LoggerFactory.getLogger(ComparisonRunner.class);
 
     private final String outputPath;
+    private final String runGroup;
     private final ComparisonReportWriter comparisonReportWriter;
     private final ObjectMapper objectMapper;
 
     public ComparisonRunner(
             @Value("${ragchecker.output.path}") String outputPath,
+            @Value("${ragchecker.run.group:}") String runGroup,
             ComparisonReportWriter comparisonReportWriter
     ) {
         this.outputPath = outputPath;
+        this.runGroup = runGroup;
         this.comparisonReportWriter = comparisonReportWriter;
         this.objectMapper = new ObjectMapper();
     }
 
     @Override
     public void run(String... args) throws Exception {
-        Path dir = Path.of(outputPath);
+        Path base = Path.of(outputPath);
+        if (runGroup != null && !runGroup.isBlank()) {
+            base = base.resolve(runGroup);
+        }
+        Path dir = base;
         if (!Files.isDirectory(dir)) {
             log.error("Output-Verzeichnis nicht gefunden: {}", dir.toAbsolutePath());
             return;

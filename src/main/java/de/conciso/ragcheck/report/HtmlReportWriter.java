@@ -58,17 +58,17 @@ public class HtmlReportWriter {
 
         // Summary cards — two groups
         sb.append("<section>\n<h2>Graph-Retrieval (/query/data)</h2>\n<div class=\"cards\">\n");
-        sb.append(card("Ø MRR", data.avgGraphMrr()));
-        sb.append(card("Ø NDCG@k", data.avgGraphNdcgAtK()));
-        sb.append(card("Ø Recall@k", data.avgGraphRecallAtK()));
+        sb.append(card("Ø MRR", data.avgGraphMrr(), data.stdDevGraphMrr()));
+        sb.append(card("Ø NDCG@k", data.avgGraphNdcgAtK(), data.stdDevGraphNdcgAtK()));
+        sb.append(card("Ø Recall@k", data.avgGraphRecallAtK(), data.stdDevGraphRecallAtK()));
         sb.append("</div>\n</section>\n");
 
         sb.append("<section>\n<h2>LLM (/query)</h2>\n<div class=\"cards\">\n");
-        sb.append(card("Ø Recall", data.avgLlmRecall()));
-        sb.append(card("Ø Precision", data.avgLlmPrecision()));
-        sb.append(card("Ø F1", data.avgLlmF1()));
-        sb.append(card("Ø Hit-Rate", data.avgLlmHitRate()));
-        sb.append(card("Ø MRR", data.avgLlmMrr()));
+        sb.append(card("Ø Recall", data.avgLlmRecall(), data.stdDevLlmRecall()));
+        sb.append(card("Ø Precision", data.avgLlmPrecision(), data.stdDevLlmPrecision()));
+        sb.append(card("Ø F1", data.avgLlmF1(), data.stdDevLlmF1()));
+        sb.append(card("Ø Hit-Rate", data.avgLlmHitRate(), data.stdDevLlmHitRate()));
+        sb.append(card("Ø MRR", data.avgLlmMrr(), data.stdDevLlmMrr()));
         sb.append("</div>\n</section>\n");
 
         // Mode comparison (only if more than one mode)
@@ -240,31 +240,43 @@ public class HtmlReportWriter {
 
         // Graph table
         sb.append("<h3>Graph-Retrieval</h3>\n");
-        sb.append("<table><thead><tr><th>Mode</th><th>Ø MRR</th><th>Ø NDCG@k</th><th>Ø Recall@k</th></tr></thead><tbody>\n");
+        sb.append("<table><thead><tr><th>Mode</th><th>Ø MRR</th><th>±σ</th><th>Ø NDCG@k</th><th>±σ</th><th>Ø Recall@k</th><th>±σ</th></tr></thead><tbody>\n");
         byMode.forEach((mode, rs) -> {
-            double mrr    = rs.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).average().orElse(0);
-            double ndcg   = rs.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).average().orElse(0);
-            double recall = rs.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).average().orElse(0);
+            double[] mrrArr    = rs.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).toArray();
+            double[] ndcgArr   = rs.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).toArray();
+            double[] recallArr = rs.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).toArray();
+            double mrr    = avg(mrrArr);
+            double ndcg   = avg(ndcgArr);
+            double recall = avg(recallArr);
             boolean best  = Math.abs(recall - bestGraphRecall) < 0.001;
             String rowCls = best ? " class=\"best-mode\"" : "";
-            sb.append(String.format("<tr%s><td><strong>%s</strong>%s</td><td>%.2f</td><td>%.2f</td><td>%.2f</td></tr>%n",
-                    rowCls, escape(mode), best ? " ★" : "", mrr, ndcg, recall));
+            sb.append(String.format("<tr%s><td><strong>%s</strong>%s</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td></tr>%n",
+                    rowCls, escape(mode), best ? " ★" : "",
+                    mrr, ReportData.stdDev(mrrArr),
+                    ndcg, ReportData.stdDev(ndcgArr),
+                    recall, ReportData.stdDev(recallArr)));
         });
         sb.append("</tbody></table>\n");
 
         // LLM table
         sb.append("<h3>LLM</h3>\n");
-        sb.append("<table><thead><tr><th>Mode</th><th>Ø Recall</th><th>Ø Precision</th><th>Ø F1</th><th>Ø Hit-Rate</th><th>Ø MRR</th></tr></thead><tbody>\n");
+        sb.append("<table><thead><tr><th>Mode</th><th>Ø Recall</th><th>±σ</th><th>Ø Precision</th><th>±σ</th><th>Ø F1</th><th>±σ</th><th>Ø Hit-Rate</th><th>±σ</th><th>Ø MRR</th><th>±σ</th></tr></thead><tbody>\n");
         byMode.forEach((mode, rs) -> {
-            double recall = rs.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).average().orElse(0);
-            double prec   = rs.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).average().orElse(0);
-            double f1     = rs.stream().mapToDouble(r -> r.llmMetrics().avgF1()).average().orElse(0);
-            double hit    = rs.stream().mapToDouble(r -> r.llmMetrics().hitRate()).average().orElse(0);
-            double mrr    = rs.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).average().orElse(0);
+            double[] recallArr = rs.stream().mapToDouble(r -> r.llmMetrics().avgRecall()).toArray();
+            double[] precArr   = rs.stream().mapToDouble(r -> r.llmMetrics().avgPrecision()).toArray();
+            double[] f1Arr     = rs.stream().mapToDouble(r -> r.llmMetrics().avgF1()).toArray();
+            double[] hitArr    = rs.stream().mapToDouble(r -> r.llmMetrics().hitRate()).toArray();
+            double[] mrrArr    = rs.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).toArray();
+            double f1     = avg(f1Arr);
             boolean best  = Math.abs(f1 - bestLlmF1) < 0.001;
             String rowCls = best ? " class=\"best-mode\"" : "";
-            sb.append(String.format("<tr%s><td><strong>%s</strong>%s</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%.2f</td></tr>%n",
-                    rowCls, escape(mode), best ? " ★" : "", recall, prec, f1, hit, mrr));
+            sb.append(String.format("<tr%s><td><strong>%s</strong>%s</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td><td>%.2f</td><td class=\"m\">%.2f</td></tr>%n",
+                    rowCls, escape(mode), best ? " ★" : "",
+                    avg(recallArr), ReportData.stdDev(recallArr),
+                    avg(precArr),   ReportData.stdDev(precArr),
+                    f1,             ReportData.stdDev(f1Arr),
+                    avg(hitArr),    ReportData.stdDev(hitArr),
+                    avg(mrrArr),    ReportData.stdDev(mrrArr)));
         });
         sb.append("</tbody></table>\n");
         sb.append("</section>\n");
@@ -359,6 +371,7 @@ public class HtmlReportWriter {
                   .card { flex: 1; min-width: 110px; border-radius: 8px; padding: .8rem 1rem; color: #fff; text-align: center; }
                   .card .lbl { font-size: .8rem; opacity: .9; }
                   .card .val { font-size: 1.8rem; font-weight: bold; }
+                  .card .sig { font-size: .8rem; opacity: .75; margin-top: .1rem; }
                   .green { background: #2e7d32; } .yellow { background: #f57f17; } .red { background: #c62828; }
                   table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; margin-bottom: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
                   th, td { padding: .5rem .7rem; text-align: left; border-bottom: 1px solid #eee; }
@@ -393,10 +406,14 @@ public class HtmlReportWriter {
         return "<div class=\"ci\"><span>" + escape(label) + "</span><strong>" + escape(value) + "</strong></div>\n";
     }
 
-    private String card(String label, double value) {
+    private String card(String label, double value, double sigma) {
         String cls = value >= 0.8 ? "green" : value >= 0.5 ? "yellow" : "red";
-        return String.format("<div class=\"card %s\"><div class=\"lbl\">%s</div><div class=\"val\">%.2f</div></div>%n",
-                cls, escape(label), value);
+        return String.format("<div class=\"card %s\"><div class=\"lbl\">%s</div><div class=\"val\">%.2f</div><div class=\"sig\">&plusmn;%.2f</div></div>%n",
+                cls, escape(label), value, sigma);
+    }
+
+    private static double avg(double[] values) {
+        return java.util.Arrays.stream(values).average().orElse(0.0);
     }
 
     private String rc(double v) { return v >= 0.8 ? "good" : v >= 0.5 ? "warn" : "bad"; }
