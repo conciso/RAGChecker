@@ -27,16 +27,34 @@ public class EvaluationRunner implements CommandLineRunner {
     private final TestCaseLoader loader;
     private final EvaluationService evaluationService;
     private final ReportWriter reportWriter;
+    private final de.conciso.ragcheck.report.OverrideEnvLoader overrideEnvLoader;
+    private final String runLabelOverride;
+    private final String runGroup;
 
     public EvaluationRunner(TestCaseLoader loader, EvaluationService evaluationService,
-                            ReportWriter reportWriter) {
+                            ReportWriter reportWriter,
+                            de.conciso.ragcheck.report.OverrideEnvLoader overrideEnvLoader,
+                            @org.springframework.beans.factory.annotation.Value("${ragchecker.run.label:}") String runLabelOverride,
+                            @org.springframework.beans.factory.annotation.Value("${ragchecker.run.group:}") String runGroup) {
         this.loader = loader;
         this.evaluationService = evaluationService;
         this.reportWriter = reportWriter;
+        this.overrideEnvLoader = overrideEnvLoader;
+        this.runLabelOverride = runLabelOverride;
+        this.runGroup = runGroup;
     }
 
     @Override
     public void run(String... args) throws Exception {
+        String effectiveLabel = resolveLabel();
+        System.out.println();
+        System.out.println("=== RAGChecker ===");
+        if (runGroup != null && !runGroup.isBlank()) {
+            System.out.println("Run-Group : " + runGroup);
+        }
+        System.out.println("Run-Label : " + (effectiveLabel.isBlank() ? "(kein Label)" : effectiveLabel));
+        System.out.println();
+
         List<TestCase> testCases = loader.load();
         log.info("Loaded {} test case(s)", testCases.size());
 
@@ -45,6 +63,11 @@ public class EvaluationRunner implements CommandLineRunner {
         printSummary(results);
         printDebug(results);
         reportWriter.write(results);
+    }
+
+    private String resolveLabel() {
+        if (runLabelOverride != null && !runLabelOverride.isBlank()) return runLabelOverride;
+        return overrideEnvLoader.load().getOrDefault("label", "");
     }
 
     // -------------------------------------------------------------------------
@@ -157,14 +180,6 @@ public class EvaluationRunner implements CommandLineRunner {
                         l.recall(), l.precision(), l.f1(), l.hit() ? "✓" : "✗", l.mrr(), l.durationMs() / 1000.0);
                 System.out.println("    Gefunden: " +
                         (l.retrievedDocuments().isEmpty() ? "(keine)" : String.join(", ", l.retrievedDocuments())));
-                System.out.println("    LLM-Antwort:");
-                if (l.responseText() == null || l.responseText().isBlank()) {
-                    System.out.println("      (keine Antwort)");
-                } else {
-                    for (String line : l.responseText().split("\n")) {
-                        System.out.println("      " + line);
-                    }
-                }
                 System.out.println(thin);
             }
 
