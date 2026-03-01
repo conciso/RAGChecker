@@ -204,6 +204,12 @@ public class LightRagClient {
         Matcher matcher = REFERENCE_PATTERN.matcher(text);
         while (matcher.find()) {
             String ref = matcher.group(2).trim();
+            // Strip LightRAG knowledge-graph annotations appended after the filename,
+            // e.g. "file.pdf   (Entity ↔ Relation)   (Firma ↔ § 5 EFZG)"
+            int annotationStart = ref.indexOf("  ");
+            if (annotationStart > 0) {
+                ref = ref.substring(0, annotationStart).trim();
+            }
             if (!ref.isBlank()) files.add(ref);
         }
         return files.stream().distinct().toList();
