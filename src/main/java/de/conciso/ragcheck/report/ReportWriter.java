@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
@@ -109,6 +110,18 @@ public class ReportWriter {
             Path htmlPath = dir.resolve(baseName + ".html");
             htmlReportWriter.write(data, htmlPath);
             log.info("HTML report written: {}", htmlPath);
+
+            if (!failures.isEmpty()) {
+                String labelPrefix = "[" + baseName + "] ";
+                StringBuilder errorLogContent = new StringBuilder();
+                for (String failure : failures) {
+                    errorLogContent.append(labelPrefix).append(failure).append(System.lineSeparator());
+                }
+                Path errorLogPath = base.resolve("errors.log");
+                Files.writeString(errorLogPath, errorLogContent.toString(),
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                log.warn("Errors written to: {} ({} Einträge)", errorLogPath, failures.size());
+            }
 
         } catch (IOException e) {
             log.error("Failed to write reports", e);
