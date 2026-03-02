@@ -56,6 +56,15 @@ public class HtmlReportWriter {
         }
         sb.append("</div>\n</header>\n");
 
+        // Error banner
+        if (data.failures() != null && !data.failures().isEmpty()) {
+            sb.append("<div class=\"error-banner\">\n");
+            sb.append("<strong>&#9888; Report unvollständig — ").append(data.failures().size())
+              .append(" API-Aufruf(e) fehlgeschlagen</strong>\n<ul>\n");
+            data.failures().forEach(f -> sb.append("<li>").append(escape(f)).append("</li>\n"));
+            sb.append("</ul>\n</div>\n");
+        }
+
         // Summary cards — two groups
         sb.append("<section>\n<h2>Graph-Retrieval (/query/data)</h2>\n<div class=\"cards\">\n");
         sb.append(card("Ø MRR", data.avgGraphMrr(), data.stdDevGraphMrr()));
@@ -398,6 +407,9 @@ public class HtmlReportWriter {
                   .sub { color: #666; margin: -.5rem 0 1rem; font-size: .9rem; }
                   h2 { margin-top: 1.5rem; } h4 { margin: 1rem 0 .4rem; }
                   section { margin-bottom: .5rem; }
+                  .error-banner { background: #b71c1c; color: #fff; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; }
+                  .error-banner ul { margin: .5rem 0 0 1.2rem; padding: 0; }
+                  .error-banner li { font-family: monospace; font-size: .9rem; margin-top: .25rem; }
                 </style>
                 """;
     }

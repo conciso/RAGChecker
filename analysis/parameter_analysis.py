@@ -84,14 +84,14 @@ ParamSpec = dict[str, tuple]  # name → ("float"|"int"|"categorical", *args)
 # ─────────────────────────────────────────────────────────────
 
 def find_report_files(reports_dir: Path) -> list[Path]:
-    """Findet alle ragcheck_*.json Dateien rekursiv (comparison ausgenommen)."""
-    pattern = str(reports_dir / "**" / "ragcheck_*.json")
+    """Findet alle *.json Report-Dateien rekursiv (comparison ausgenommen)."""
+    pattern = str(reports_dir / "**" / "*.json")
     files = [
         Path(f) for f in glob.glob(pattern, recursive=True)
         if "comparison" not in Path(f).name
     ]
     if not files:
-        print(f"  ⚠  Keine ragcheck_*.json Dateien in '{reports_dir}' gefunden.")
+        print(f"  ⚠  Keine *.json Dateien in '{reports_dir}' gefunden.")
     else:
         print(f"  ✓  {len(files)} Report-Datei(en) gefunden.")
     return sorted(files)
@@ -120,7 +120,10 @@ def _extract_row(data: dict, path: Path) -> dict:
         "file": path.name,
         "run_label": cfg.get("runLabel") or path.parent.name,
         "timestamp": data.get("timestamp", ""),
-        "query_mode": cfg.get("queryMode", "unknown"),
+        "query_mode": (
+            ",".join(cfg["queryModes"]) if "queryModes" in cfg
+            else cfg.get("queryMode", "unknown")
+        ),
         "top_k": cfg.get("topK", np.nan),
         "runs_per_testcase": cfg.get("runsPerTestCase", 1),
         "graph_mrr":    round(graph.get("avgMrr", np.nan), 4),

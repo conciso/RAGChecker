@@ -58,11 +58,28 @@ public class EvaluationRunner implements CommandLineRunner {
         List<TestCase> testCases = loader.load();
         log.info("Loaded {} test case(s)", testCases.size());
 
-        List<AggregatedEvalResult> results = evaluationService.evaluate(testCases);
+        List<AggregatedEvalResult> results;
+        EvaluationService.PartialEvaluationException partialFailure = null;
+        try {
+            results = evaluationService.evaluate(testCases);
+        } catch (EvaluationService.PartialEvaluationException e) {
+            partialFailure = e;
+            results = e.getPartialResults();
+        }
 
         printSummary(results);
         printDebug(results);
-        reportWriter.write(results);
+        List<String> failures = partialFailure != null ? partialFailure.getFailures() : List.of();
+        reportWriter.write(results, failures);
+
+        if (partialFailure != null) {
+            System.out.println();
+            System.out.println("!".repeat(72));
+            System.out.println("  ACHTUNG: " + partialFailure.getFailures().size() + " API-Aufruf(e) fehlgeschlagen — Report ist unvollständig!");
+            partialFailure.getFailures().forEach(f -> System.out.println("  ✗ " + f));
+            System.out.println("!".repeat(72));
+            throw partialFailure;
+        }
     }
 
     private String resolveLabel() {

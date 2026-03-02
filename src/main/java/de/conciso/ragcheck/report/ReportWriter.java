@@ -58,6 +58,10 @@ public class ReportWriter {
     }
 
     public void write(List<AggregatedEvalResult> results) {
+        write(results, List.of());
+    }
+
+    public void write(List<AggregatedEvalResult> results, List<String> failures) {
         Map<String, String> overrideParams = overrideEnvLoader.load();
 
         // label: RAGCHECKER_RUN_LABEL hat Vorrang, sonst "label" aus override.env
@@ -78,7 +82,7 @@ public class ReportWriter {
         runParameters.remove("top_k");
 
         ReportData data = ReportData.of(results, runLabel, runParameters,
-                queryModes, topK, runsPerTestCase, testCasesPath);
+                queryModes, topK, runsPerTestCase, testCasesPath, failures);
 
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
         String baseName = (runLabel != null && !runLabel.isBlank())

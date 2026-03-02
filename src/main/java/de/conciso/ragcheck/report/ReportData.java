@@ -16,6 +16,7 @@ public record ReportData(
         int runsPerTestCase,
         String testCasesPath,
         List<AggregatedEvalResult> results,
+        List<String> failures,
         // Graph summary
         double avgGraphMrr,
         double stdDevGraphMrr,
@@ -38,7 +39,7 @@ public record ReportData(
     public static ReportData of(List<AggregatedEvalResult> results,
                                 String runLabel, Map<String, String> runParameters,
                                 List<String> queryModes, int topK, int runsPerTestCase,
-                                String testCasesPath) {
+                                String testCasesPath, List<String> failures) {
         double[] graphMrr      = results.stream().mapToDouble(r -> r.graphMetrics().avgMrr()).toArray();
         double[] graphNdcg     = results.stream().mapToDouble(r -> r.graphMetrics().avgNdcgAtK()).toArray();
         double[] graphRecall   = results.stream().mapToDouble(r -> r.graphMetrics().avgRecallAtK()).toArray();
@@ -49,7 +50,7 @@ public record ReportData(
         double[] llmMrr        = results.stream().mapToDouble(r -> r.llmMetrics().avgMrr()).toArray();
 
         return new ReportData(Instant.now(), runLabel, runParameters, queryModes, topK,
-                runsPerTestCase, testCasesPath, results,
+                runsPerTestCase, testCasesPath, results, List.copyOf(failures),
                 mean(graphMrr),     stdDev(graphMrr),
                 mean(graphNdcg),    stdDev(graphNdcg),
                 mean(graphRecall),  stdDev(graphRecall),
