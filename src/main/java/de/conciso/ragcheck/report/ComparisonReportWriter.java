@@ -149,6 +149,7 @@ public class ComparisonReportWriter {
     }
 
     private String buildHtml(List<ComparisonEntry> entries) {
+        int maxTc                = entries.stream().mapToInt(ComparisonEntry::totalTestCases).max().orElse(0);
         double bestGraphMrr      = best(entries, ComparisonEntry::avgGraphMrr);
         double bestGraphNdcg     = best(entries, ComparisonEntry::avgGraphNdcgAtK);
         double bestGraphRecall   = best(entries, ComparisonEntry::avgGraphRecallAtK);
@@ -201,6 +202,7 @@ public class ComparisonReportWriter {
                                 box-shadow: 0 1px 4px rgba(0,0,0,.1); }
                   .chart-wrap h3 { margin: 0 0 .75rem; font-size: .95rem; color: #1a1a2e; }
                   @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+                  .tc-warn { color: #c62828; margin-left: .3rem; cursor: help; font-size: .9rem; }
                 </style>
                 </head>
                 <body>
@@ -254,7 +256,7 @@ public class ComparisonReportWriter {
             sb.append("<td class=\"params\">").append(esc(formatParams(fullParamsMap(e)))).append("</td>");
             sb.append("<td>").append(esc(e.queryMode())).append("</td>");
             sb.append("<td>").append(e.topK()).append("</td>");
-            sb.append("<td>").append(e.totalTestCases()).append("</td>");
+            sb.append(tcCell(e.totalTestCases(), maxTc));
             sb.append("<td>").append(e.runsPerTestCase()).append("</td>");
             sb.append(valCell(e.avgGraphMrr(), bestGraphMrr));
             sb.append(valCell(e.avgGraphNdcgAtK(), bestGraphNdcg));
@@ -281,7 +283,7 @@ public class ComparisonReportWriter {
             sb.append("<td class=\"params\">").append(esc(formatParams(fullParamsMap(e)))).append("</td>");
             sb.append("<td>").append(esc(e.queryMode())).append("</td>");
             sb.append("<td>").append(e.topK()).append("</td>");
-            sb.append("<td>").append(e.totalTestCases()).append("</td>");
+            sb.append(tcCell(e.totalTestCases(), maxTc));
             sb.append("<td>").append(e.runsPerTestCase()).append("</td>");
             sb.append(valCell(e.avgLlmRecall(), bestLlmRecall));
             sb.append(valCell(e.avgLlmPrecision(), bestLlmPrecision));
@@ -413,6 +415,14 @@ public class ComparisonReportWriter {
     }
 
     // -------------------------------------------------------------------------
+
+    private String tcCell(int actual, int max) {
+        if (actual < max) {
+            String tooltip = "Es wurden nur " + actual + "/" + max + " Testfälle verarbeitet";
+            return "<td>" + actual + "<span class=\"tc-warn\" title=\"" + tooltip + "\">⚠</span></td>";
+        }
+        return "<td>" + actual + "</td>";
+    }
 
     private String valCell(double value, double best) {
         String cls = value >= 0.8 ? "val-good" : value >= 0.5 ? "val-mid" : "val-bad";
