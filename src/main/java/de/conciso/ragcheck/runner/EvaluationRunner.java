@@ -58,27 +58,26 @@ public class EvaluationRunner implements CommandLineRunner {
         List<TestCase> testCases = loader.load();
         log.info("Loaded {} test case(s)", testCases.size());
 
-        List<AggregatedEvalResult> results;
-        EvaluationService.PartialEvaluationException partialFailure = null;
-        try {
-            results = evaluationService.evaluate(testCases);
-        } catch (EvaluationService.PartialEvaluationException e) {
-            partialFailure = e;
-            results = e.getPartialResults();
+        List<AggregatedEvalResult> results = new ArrayList<>();
+        List<String> failures = new ArrayList<>();
+
+        for (int i = 0; i < testCases.size(); i++) {
+            TestCase tc = testCases.get(i);
+            log.info("Testfall {}/{}: {}", i + 1, testCases.size(), tc.id());
+            results.addAll(evaluationService.evaluateTestCase(tc, failures));
+            reportWriter.write(results, failures);
+            log.info("Zwischenergebnis nach {}/{} Testfällen geschrieben.", i + 1, testCases.size());
         }
 
         printSummary(results);
         printDebug(results);
-        List<String> failures = partialFailure != null ? partialFailure.getFailures() : List.of();
-        reportWriter.write(results, failures);
 
-        if (partialFailure != null) {
+        if (!failures.isEmpty()) {
             System.out.println();
             System.out.println("!".repeat(72));
-            System.out.println("  ACHTUNG: " + partialFailure.getFailures().size() + " API-Aufruf(e) fehlgeschlagen — Report ist unvollständig!");
-            partialFailure.getFailures().forEach(f -> System.out.println("  ✗ " + f));
+            System.out.println("  ACHTUNG: " + failures.size() + " API-Aufruf(e) fehlgeschlagen — Report ist unvollständig!");
+            failures.forEach(f -> System.out.println("  ✗ " + f));
             System.out.println("!".repeat(72));
-            throw partialFailure;
         }
     }
 
