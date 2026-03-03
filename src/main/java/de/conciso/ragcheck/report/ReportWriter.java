@@ -119,15 +119,15 @@ public class ReportWriter {
 
             Path jsonPath = dir.resolve(baseName + ".json");
             jsonReportWriter.write(data, jsonPath);
-            log.info("JSON report written: {}", jsonPath);
+            log.trace("JSON report written: {}", jsonPath);
 
             Path mdPath = dir.resolve(baseName + ".md");
             markdownReportWriter.write(data, mdPath);
-            log.info("Markdown report written: {}", mdPath);
+            log.trace("Markdown report written: {}", mdPath);
 
             Path htmlPath = dir.resolve(baseName + ".html");
             htmlReportWriter.write(data, htmlPath);
-            log.info("HTML report written: {}", htmlPath);
+            log.trace("HTML report written: {}", htmlPath);
 
             if (!failures.isEmpty()) {
                 String labelPrefix = "[" + baseName + "/" + mode + "] ";
