@@ -68,19 +68,24 @@ public class ReportWriter {
         // label: RAGCHECKER_RUN_LABEL hat Vorrang, sonst "label" aus override.env
         String runLabel = (runLabelOverride != null && !runLabelOverride.isBlank())
                 ? runLabelOverride
-                : overrideParams.getOrDefault("label", "");
+                : overrideParams.entrySet().stream()
+                        .filter(e -> e.getKey().equalsIgnoreCase("label"))
+                        .map(Map.Entry::getValue)
+                        .findFirst().orElse("");
 
-        // topK aus override.env (für den Report-Header), fallback 0
+        // topK aus override.env (für den Report-Header), fallback 0 — case-insensitiv
         int topK = 0;
-        String topKStr = overrideParams.get("top_k");
+        String topKStr = overrideParams.entrySet().stream()
+                .filter(e -> e.getKey().equalsIgnoreCase("top_k"))
+                .map(Map.Entry::getValue)
+                .findFirst().orElse(null);
         if (topKStr != null) {
             try { topK = Integer.parseInt(topKStr.trim()); } catch (NumberFormatException ignored) {}
         }
 
-        // runParameters: alle Werte aus override.env außer "label" und "top_k"
+        // runParameters: alle Werte aus override.env außer "label" und "top_k" — case-insensitiv
         Map<String, String> runParameters = new LinkedHashMap<>(overrideParams);
-        runParameters.remove("label");
-        runParameters.remove("top_k");
+        runParameters.keySet().removeIf(k -> k.equalsIgnoreCase("label") || k.equalsIgnoreCase("top_k"));
 
         ReportData data = ReportData.of(results, runLabel, runParameters,
                 queryModes, topK, runsPerTestCase, testCasesPath, failures);
