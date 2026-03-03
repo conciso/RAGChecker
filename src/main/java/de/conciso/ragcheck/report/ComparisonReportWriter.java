@@ -202,8 +202,9 @@ public class ComparisonReportWriter {
                                 box-shadow: 0 1px 4px rgba(0,0,0,.1); }
                   .chart-wrap h3 { margin: 0 0 .75rem; font-size: .95rem; color: #1a1a2e; }
                   @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
-                  .tc-warn { position: relative; display: inline-block; margin-left: .35rem;
-                             color: #c62828; font-size: 1.1rem; font-weight: 700; cursor: help; }
+                  .tc-warn { position: relative; display: inline-block; margin-left: .45rem;
+                             color: #c62828; font-size: 1.5rem; font-weight: 700; cursor: help;
+                             vertical-align: middle; line-height: 1; white-space: nowrap; }
                   .tc-warn::after { content: attr(data-tip); position: absolute; bottom: 130%; left: 50%;
                              transform: translateX(-50%); background: #333; color: #fff;
                              padding: .35rem .6rem; border-radius: 4px; font-size: .78rem; font-weight: 400;
@@ -426,7 +427,8 @@ public class ComparisonReportWriter {
     private String tcCell(int actual, int max) {
         if (actual < max) {
             String tip = "Nur " + actual + "/" + max + " Testfälle verarbeitet";
-            return "<td>" + actual + "<span class=\"tc-warn\" data-tip=\"" + tip + "\">⚠</span></td>";
+            return "<td style=\"white-space:nowrap\">" + actual
+                    + "<span class=\"tc-warn\" data-tip=\"" + tip + "\">⚠</span></td>";
         }
         return "<td>" + actual + "</td>";
     }
