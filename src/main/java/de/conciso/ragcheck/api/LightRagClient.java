@@ -171,7 +171,11 @@ public class LightRagClient {
         log.debug("Raw /query response:\n{}", raw);
 
         String responseText = extractResponseText(raw);
-        List<String> fileNames = parseReferencedFiles(responseText);
+        List<String> fileNames = extractReferencesFromJson(raw);
+        if (fileNames.isEmpty()) {
+            log.debug("No references in JSON, falling back to regex parsing");
+            fileNames = parseReferencedFiles(responseText);
+        }
 
         log.debug("LLM referenced files: {}", fileNames);
         return new LlmResponse(responseText, fileNames);
@@ -196,6 +200,27 @@ public class LightRagClient {
             }
         }
         return trimmed;
+    }
+
+    private List<String> extractReferencesFromJson(String raw) {
+        if (raw == null || raw.isBlank()) return List.of();
+        try {
+            JsonNode root = objectMapper.readTree(raw.trim());
+            JsonNode refs = root.get("references");
+            if (refs != null && refs.isArray() && !refs.isEmpty()) {
+                List<String> files = new ArrayList<>();
+                for (JsonNode ref : refs) {
+                    JsonNode fp = ref.get("file_path");
+                    if (fp != null && !fp.isNull() && !fp.asText().isBlank()) {
+                        files.add(Paths.get(fp.asText()).getFileName().toString());
+                    }
+                }
+                return files.stream().distinct().toList();
+            }
+        } catch (Exception e) {
+            log.debug("Could not parse references from JSON: {}", e.getMessage());
+        }
+        return List.of();
     }
 
     private List<String> parseReferencedFiles(String text) {
