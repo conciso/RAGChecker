@@ -13,8 +13,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 @Service
 public class EvaluationService {
@@ -36,84 +38,135 @@ public class EvaluationService {
     }
 
     /**
-     * Wertet alle Testfälle auf einmal aus.
+     * Wertet alle Testfälle aus.
+     * Pro Mode und Lauf werden alle Testfälle in einer gemeinsamen Session gestellt
+     * (conversation_history wächst mit jeder Frage innerhalb der Session).
+     * Nach jeder abgeschlossenen Session wird onSessionComplete mit den bisher
+     * akkumulierten Zwischenergebnissen aufgerufen.
      * Wirft PartialEvaluationException wenn mindestens ein API-Aufruf fehlgeschlagen ist.
      */
-    public List<AggregatedEvalResult> evaluate(List<TestCase> testCases) {
-        List<AggregatedEvalResult> results = new ArrayList<>();
-        List<String> failures = new ArrayList<>();
+    public List<AggregatedEvalResult> evaluate(List<TestCase> testCases,
+                                               List<String> failures,
+                                               Consumer<List<AggregatedEvalResult>> onSessionComplete) {
+        // Akkumulatoren: Key = "tcId::mode"
+        Map<String, List<GraphRetrievalRunResult>> graphRunsMap = new LinkedHashMap<>();
+        Map<String, List<LlmRunResult>> llmRunsMap = new LinkedHashMap<>();
         for (TestCase tc : testCases) {
-            results.addAll(evaluateTestCase(tc, failures));
+            for (String mode : queryModes) {
+                String key = key(tc.id(), mode);
+                graphRunsMap.put(key, new ArrayList<>());
+                llmRunsMap.put(key, new ArrayList<>());
+            }
         }
+
+        for (String mode : queryModes) {
+            for (int run = 1; run <= runsPerTestCase; run++) {
+                log.info("=== Session: mode={} Lauf={}/{} ===", mode, run, runsPerTestCase);
+                List<LightRagClient.ConversationEntry> history = new ArrayList<>();
+
+                for (TestCase tc : testCases) {
+                    String key = key(tc.id(), mode);
+
+                    // --- Graph ---
+                    log.info("  [{}/{}] ({}/{}) — Graph: {}", tc.id(), mode, run, runsPerTestCase, tc.prompt());
+                    long graphStart = System.currentTimeMillis();
+                    GraphRetrievalData graphData;
+                    try {
+                        graphData = lightRagClient.queryData(tc.prompt(), mode, history);
+                    } catch (RestClientException e) {
+                        String failure = String.format("Graph [%s/%s] Lauf %d/%d: %s", tc.id(), mode, run, runsPerTestCase, e.getMessage());
+                        log.error("API-Fehler — {}", failure);
+                        failures.add(failure);
+                        graphData = new GraphRetrievalData(List.of(), List.of(), List.of(), Map.of());
+                    }
+                    long graphDuration = System.currentTimeMillis() - graphStart;
+                    graphRunsMap.get(key).add(GraphRetrievalRunResult.of(tc, graphData, graphDuration));
+                    log.info("  [{}/{}] ({}/{}) — Graph fertig in {}s", tc.id(), mode, run, runsPerTestCase,
+                            String.format("%.2f", graphDuration / 1000.0));
+
+                    // --- LLM ---
+                    log.info("  [{}/{}] ({}/{}) — LLM:   {}", tc.id(), mode, run, runsPerTestCase, tc.prompt());
+                    long llmStart = System.currentTimeMillis();
+                    LightRagClient.LlmResponse llmResponse;
+                    try {
+                        llmResponse = lightRagClient.queryLlm(tc.prompt(), mode, history);
+                    } catch (RestClientException e) {
+                        String failure = String.format("LLM   [%s/%s] Lauf %d/%d: %s", tc.id(), mode, run, runsPerTestCase, e.getMessage());
+                        log.error("API-Fehler — {}", failure);
+                        failures.add(failure);
+                        llmResponse = new LightRagClient.LlmResponse(null, List.of());
+                    }
+                    long llmDuration = System.currentTimeMillis() - llmStart;
+                    llmRunsMap.get(key).add(LlmRunResult.of(tc, llmResponse.referencedDocuments(), llmResponse.responseText(), llmDuration));
+                    log.info("  [{}/{}] ({}/{}) — LLM fertig in {}s", tc.id(), mode, run, runsPerTestCase,
+                            String.format("%.2f", llmDuration / 1000.0));
+
+                    // History für nächste Frage in dieser Session erweitern
+                    history.add(new LightRagClient.ConversationEntry("user", tc.prompt()));
+                    String assistantContent = llmResponse.responseText() != null ? llmResponse.responseText() : "";
+                    history.add(new LightRagClient.ConversationEntry("assistant", assistantContent));
+                }
+
+                // Zwischenergebnis nach jeder Session
+                List<AggregatedEvalResult> partial = buildResults(testCases, graphRunsMap, llmRunsMap);
+                logSessionSummary(partial, mode, run);
+                onSessionComplete.accept(partial);
+            }
+        }
+
+        List<AggregatedEvalResult> results = buildResults(testCases, graphRunsMap, llmRunsMap);
         if (!failures.isEmpty()) {
             throw new PartialEvaluationException(results, failures);
         }
         return results;
     }
 
-    /**
-     * Wertet einen einzelnen Testfall über alle Query-Modi und Läufe aus.
-     * Fehler werden in die übergebene failures-Liste geschrieben (kein throw).
-     */
-    public List<AggregatedEvalResult> evaluateTestCase(TestCase tc, List<String> failures) {
+    // -------------------------------------------------------------------------
+
+    private List<AggregatedEvalResult> buildResults(List<TestCase> testCases,
+                                                    Map<String, List<GraphRetrievalRunResult>> graphRunsMap,
+                                                    Map<String, List<LlmRunResult>> llmRunsMap) {
         List<AggregatedEvalResult> results = new ArrayList<>();
-        for (String mode : queryModes) {
-            List<GraphRetrievalRunResult> graphRuns = new ArrayList<>();
-            List<LlmRunResult> llmRuns = new ArrayList<>();
-
-            for (int i = 1; i <= runsPerTestCase; i++) {
-                log.info("Running [{}/{}] ({}/{}) — Graph: {}", tc.id(), mode, i, runsPerTestCase, tc.prompt());
-                long graphStart = System.currentTimeMillis();
-                GraphRetrievalData graphData;
-                try {
-                    graphData = lightRagClient.queryData(tc.prompt(), mode);
-                } catch (RestClientException e) {
-                    String failure = String.format("Graph [%s/%s] Lauf %d/%d: %s", tc.id(), mode, i, runsPerTestCase, e.getMessage());
-                    log.error("API-Fehler — {}", failure);
-                    failures.add(failure);
-                    graphData = new GraphRetrievalData(List.of(), List.of(), List.of(), Map.of());
-                }
-                long graphDuration = System.currentTimeMillis() - graphStart;
-                graphRuns.add(GraphRetrievalRunResult.of(tc, graphData, graphDuration));
-                log.info("Running [{}/{}] ({}/{}) — Graph fertig in {}s", tc.id(), mode, i, runsPerTestCase, String.format("%.2f", graphDuration / 1000.0));
-
-                log.info("Running [{}/{}] ({}/{}) — LLM:   {}", tc.id(), mode, i, runsPerTestCase, tc.prompt());
-                long llmStart = System.currentTimeMillis();
-                LightRagClient.LlmResponse llmResponse;
-                try {
-                    llmResponse = lightRagClient.queryLlm(tc.prompt(), mode);
-                } catch (RestClientException e) {
-                    String failure = String.format("LLM   [%s/%s] Lauf %d/%d: %s", tc.id(), mode, i, runsPerTestCase, e.getMessage());
-                    log.error("API-Fehler — {}", failure);
-                    failures.add(failure);
-                    llmResponse = new LightRagClient.LlmResponse(null, List.of());
-                }
-                long llmDuration = System.currentTimeMillis() - llmStart;
-                llmRuns.add(LlmRunResult.of(tc, llmResponse.referencedDocuments(), llmResponse.responseText(), llmDuration));
-                log.info("Running [{}/{}] ({}/{}) — LLM fertig in {}s", tc.id(), mode, i, runsPerTestCase, String.format("%.2f", llmDuration / 1000.0));
+        for (TestCase tc : testCases) {
+            for (String mode : queryModes) {
+                String key = key(tc.id(), mode);
+                List<GraphRetrievalRunResult> graphRuns = graphRunsMap.get(key);
+                List<LlmRunResult> llmRuns = llmRunsMap.get(key);
+                if (graphRuns == null || graphRuns.isEmpty()) continue;
+                AggregatedEvalResult result = AggregatedEvalResult.of(tc, graphRuns, llmRuns, mode);
+                results.add(result);
             }
-
-            AggregatedEvalResult result = AggregatedEvalResult.of(tc, graphRuns, llmRuns, mode);
-
-            log.info("[{}/{}] Graph — MRR={} NDCG={} Recall@k={} ØDauer={}s",
-                    result.testCaseId(), result.queryMode(),
-                    fmt(result.graphMetrics().avgMrr()),
-                    fmt(result.graphMetrics().avgNdcgAtK()),
-                    fmt(result.graphMetrics().avgRecallAtK()),
-                    String.format("%.2f", result.graphMetrics().avgDurationMs() / 1000.0));
-            log.info("[{}/{}] LLM   — Recall={} Precision={} F1={} Hit={} MRR={} ØDauer={}s",
-                    result.testCaseId(), result.queryMode(),
-                    fmt(result.llmMetrics().avgRecall()),
-                    fmt(result.llmMetrics().avgPrecision()),
-                    fmt(result.llmMetrics().avgF1()),
-                    fmt(result.llmMetrics().hitRate()),
-                    fmt(result.llmMetrics().avgMrr()),
-                    String.format("%.2f", result.llmMetrics().avgDurationMs() / 1000.0));
-
-            results.add(result);
         }
         return results;
     }
+
+    private void logSessionSummary(List<AggregatedEvalResult> results, String mode, int run) {
+        results.stream()
+                .filter(r -> r.queryMode().equals(mode))
+                .filter(r -> r.runs() == run)
+                .forEach(r -> {
+                    log.info("[{}/{}] Graph — MRR={} NDCG={} Recall@k={}",
+                            r.testCaseId(), r.queryMode(),
+                            fmt(r.graphMetrics().avgMrr()),
+                            fmt(r.graphMetrics().avgNdcgAtK()),
+                            fmt(r.graphMetrics().avgRecallAtK()));
+                    log.info("[{}/{}] LLM   — Recall={} Precision={} F1={}",
+                            r.testCaseId(), r.queryMode(),
+                            fmt(r.llmMetrics().avgRecall()),
+                            fmt(r.llmMetrics().avgPrecision()),
+                            fmt(r.llmMetrics().avgF1()));
+                });
+    }
+
+    private static String key(String tcId, String mode) {
+        return tcId + "::" + mode;
+    }
+
+    private String fmt(double v) {
+        return String.format("%.2f", v);
+    }
+
+    // -------------------------------------------------------------------------
 
     public static class PartialEvaluationException extends RuntimeException {
         private final List<AggregatedEvalResult> partialResults;
@@ -127,9 +180,5 @@ public class EvaluationService {
 
         public List<AggregatedEvalResult> getPartialResults() { return partialResults; }
         public List<String> getFailures() { return failures; }
-    }
-
-    private String fmt(double v) {
-        return String.format("%.2f", v);
     }
 }

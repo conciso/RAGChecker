@@ -58,15 +58,18 @@ public class EvaluationRunner implements CommandLineRunner {
         List<TestCase> testCases = loader.load();
         log.info("Loaded {} test case(s)", testCases.size());
 
-        List<AggregatedEvalResult> results = new ArrayList<>();
         List<String> failures = new ArrayList<>();
+        List<AggregatedEvalResult> results;
 
-        for (int i = 0; i < testCases.size(); i++) {
-            TestCase tc = testCases.get(i);
-            log.info("Testfall {}/{}: {}", i + 1, testCases.size(), tc.id());
-            results.addAll(evaluationService.evaluateTestCase(tc, failures));
-            reportWriter.write(results, failures);
-            log.info("Zwischenergebnis nach {}/{} Testfällen geschrieben.", i + 1, testCases.size());
+        try {
+            results = evaluationService.evaluate(testCases, failures, partial -> {
+                reportWriter.write(partial, failures);
+                log.info("Zwischenergebnis nach Session geschrieben ({} Einträge).", partial.size());
+            });
+        } catch (EvaluationService.PartialEvaluationException e) {
+            results = e.getPartialResults();
+            failures.addAll(e.getFailures().stream()
+                    .filter(f -> !failures.contains(f)).toList());
         }
 
         printSummary(results);

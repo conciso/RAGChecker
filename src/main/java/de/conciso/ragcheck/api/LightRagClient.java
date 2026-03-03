@@ -51,14 +51,17 @@ public class LightRagClient {
      * sowie semantische Metadaten (Entity-Namen, Relationship-Paare, Quellen-Zuordnung).
      * Kein LLM-Aufruf — schnell.
      */
-    public GraphRetrievalData queryData(String prompt, String mode) {
+    public GraphRetrievalData queryData(String prompt, String mode, List<ConversationEntry> history) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("query", prompt);
+        body.put("mode", mode);
+        body.put("include_references", true);
+        if (history != null && !history.isEmpty()) {
+            body.put("conversation_history", history);
+        }
         QueryDataResponse response = restClient.post()
                 .uri("/query/data")
-                .body(Map.of(
-                        "query", prompt,
-                        "mode", mode,
-                        "include_references", true
-                ))
+                .body(body)
                 .retrieve()
                 .body(QueryDataResponse.class);
 
@@ -152,14 +155,17 @@ public class LightRagClient {
      * Läuft das vollständige RAG-Pipeline inkl. LLM — dauert 30–60 s.
      * Gibt den Antworttext und die darin zitierten Dokumente zurück.
      */
-    public LlmResponse queryLlm(String prompt, String mode) {
+    public LlmResponse queryLlm(String prompt, String mode, List<ConversationEntry> history) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("query", prompt);
+        body.put("mode", mode);
+        body.put("stream", false);
+        if (history != null && !history.isEmpty()) {
+            body.put("conversation_history", history);
+        }
         String raw = restClient.post()
                 .uri("/query")
-                .body(Map.of(
-                        "query", prompt,
-                        "mode", mode,
-                        "stream", false
-                ))
+                .body(body)
                 .retrieve()
                 .body(String.class);
 
@@ -182,6 +188,8 @@ public class LightRagClient {
     }
 
     public record LlmResponse(String responseText, List<String> referencedDocuments) {}
+
+    public record ConversationEntry(String role, String content) {}
 
     // --- helpers ---
 
