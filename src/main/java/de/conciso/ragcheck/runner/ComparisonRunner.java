@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -66,40 +67,78 @@ public class ComparisonRunner implements CommandLineRunner {
 
         log.info("{} Report-Datei(en) gefunden, lese Daten...", reportFiles.size());
 
-        List<ComparisonEntry> entries = new ArrayList<>();
+        List<ComparisonEntry> allEntries = new ArrayList<>();
         for (Path file : reportFiles) {
             try {
                 ComparisonEntry entry = parseReport(file);
-                entries.add(entry);
-                log.info("  Gelesen: {} (Label: {})", file.getFileName(),
-                        entry.runLabel().isBlank() ? "—" : entry.runLabel());
+                allEntries.add(entry);
+                log.info("  Gelesen: {} (Label: {}, Mode: {})", file.getFileName(),
+                        entry.runLabel().isBlank() ? "—" : entry.runLabel(),
+                        entry.queryMode());
             } catch (Exception e) {
                 log.warn("  Fehler beim Lesen von {}: {}", file.getFileName(), e.getMessage());
             }
         }
 
-        if (entries.isEmpty()) {
+        if (allEntries.isEmpty()) {
             log.error("Keine gültigen Reports gelesen, Vergleich abgebrochen.");
             return;
         }
 
-        comparisonReportWriter.write(entries, dir);
-        log.info("Vergleichsreport geschrieben: {}/comparison.{{md,html}}", dir.toAbsolutePath());
+        // Entries nach Mode gruppieren und pro Mode einen Vergleichsreport schreiben
+        Map<String, List<ComparisonEntry>> byMode = new LinkedHashMap<>();
+        for (ComparisonEntry entry : allEntries) {
+            byMode.computeIfAbsent(entry.queryMode(), k -> new ArrayList<>()).add(entry);
+        }
 
-        printSummary(entries);
+        for (Map.Entry<String, List<ComparisonEntry>> modeEntry : byMode.entrySet()) {
+            String mode = modeEntry.getKey();
+            List<ComparisonEntry> modeEntries = modeEntry.getValue();
+            Path modeDir = dir.resolve(mode);
+            if (Files.isDirectory(modeDir)) {
+                comparisonReportWriter.write(modeEntries, modeDir);
+                log.info("Mode-Vergleichsreport geschrieben: {}/comparison.{{md,html}}", modeDir.toAbsolutePath());
+            } else {
+                log.warn("Mode-Verzeichnis nicht gefunden, überspringe per-Mode-Report: {}", modeDir);
+            }
+        }
+
+        // Mode-übergreifender Vergleich (nur wenn mehr als 1 Mode vorhanden)
+        if (byMode.size() > 1) {
+            comparisonReportWriter.write(allEntries, dir);
+            log.info("Vergleichsreport (alle Modi) geschrieben: {}/comparison.{{md,html}}", dir.toAbsolutePath());
+        } else {
+            // Nur ein Mode: Gesamt-Report trotzdem schreiben (entspricht dem Mode-Report)
+            comparisonReportWriter.write(allEntries, dir);
+            log.info("Vergleichsreport geschrieben: {}/comparison.{{md,html}}", dir.toAbsolutePath());
+        }
+
+        printSummary(allEntries);
     }
 
     // -------------------------------------------------------------------------
 
     private List<Path> findReportFiles(Path dir) throws IOException {
-        try (var stream = Files.list(dir)) {
-            return stream
-                    .filter(Files::isDirectory)
-                    .map(subDir -> subDir.resolve(subDir.getFileName() + ".json"))
-                    .filter(Files::isRegularFile)
-                    .sorted()
-                    .toList();
+        List<Path> files = new ArrayList<>();
+        try (var modeStream = Files.list(dir)) {
+            for (Path modeDir : modeStream.filter(Files::isDirectory).sorted().toList()) {
+                // Neue Struktur: <modeDir>/<label>/<label>.json
+                try (var labelStream = Files.list(modeDir)) {
+                    labelStream.filter(Files::isDirectory).sorted()
+                            .map(labelDir -> labelDir.resolve(labelDir.getFileName() + ".json"))
+                            .filter(Files::isRegularFile)
+                            .forEach(files::add);
+                } catch (IOException e) {
+                    log.warn("Fehler beim Lesen von Mode-Verzeichnis {}: {}", modeDir, e.getMessage());
+                }
+                // Legacy-Fallback: <modeDir> ist selbst ein Label-Ordner
+                Path legacyFile = modeDir.resolve(modeDir.getFileName() + ".json");
+                if (Files.isRegularFile(legacyFile) && !files.contains(legacyFile)) {
+                    files.add(legacyFile);
+                }
+            }
         }
+        return files;
     }
 
     @SuppressWarnings("unchecked")

@@ -24,7 +24,6 @@ public class ReportWriter {
 
     private final String outputPath;
     private final String runGroup;
-    private final List<String> queryModes;
     private final int runsPerTestCase;
     private final String testCasesPath;
     private final String runLabelOverride;
@@ -37,7 +36,6 @@ public class ReportWriter {
     public ReportWriter(
             @Value("${ragchecker.output.path}") String outputPath,
             @Value("${ragchecker.run.group:}") String runGroup,
-            @Value("${ragchecker.query.modes}") String queryModesStr,
             @Value("${ragchecker.runs.per-testcase:1}") int runsPerTestCase,
             @Value("${ragchecker.testcases.path}") String testCasesPath,
             @Value("${ragchecker.run.label:}") String runLabelOverride,
@@ -48,7 +46,6 @@ public class ReportWriter {
     ) {
         this.outputPath = outputPath;
         this.runGroup = runGroup;
-        this.queryModes = List.of(queryModesStr.split(","));
         this.runsPerTestCase = runsPerTestCase;
         this.testCasesPath = testCasesPath;
         this.runLabelOverride = runLabelOverride;
@@ -87,21 +84,37 @@ public class ReportWriter {
         Map<String, String> runParameters = new LinkedHashMap<>(overrideParams);
         runParameters.keySet().removeIf(k -> k.equalsIgnoreCase("label") || k.equalsIgnoreCase("top_k"));
 
-        ReportData data = ReportData.of(results, runLabel, runParameters,
-                queryModes, topK, runsPerTestCase, testCasesPath, failures);
-
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
         String baseName = (runLabel != null && !runLabel.isBlank())
                 ? runLabel
                 : "ragcheck_" + timestamp;
 
+        Path base = Path.of(outputPath);
+        if (runGroup != null && !runGroup.isBlank()) {
+            base = base.resolve(runGroup);
+        }
+
+        // Ergebnisse nach queryMode gruppieren
+        Map<String, List<AggregatedEvalResult>> byMode = new LinkedHashMap<>();
+        for (AggregatedEvalResult r : results) {
+            byMode.computeIfAbsent(r.queryMode(), k -> new java.util.ArrayList<>()).add(r);
+        }
+
+        for (Map.Entry<String, List<AggregatedEvalResult>> entry : byMode.entrySet()) {
+            writeOneMode(entry.getValue(), entry.getKey(), baseName, runLabel,
+                    runParameters, topK, failures, base);
+        }
+    }
+
+    private void writeOneMode(List<AggregatedEvalResult> modeResults, String mode,
+            String baseName, String runLabel, Map<String, String> runParameters,
+            int topK, List<String> failures, Path base) {
         try {
-            // Dateien kommen in <outputPath>/[<runGroup>/]<baseName>/
-            Path base = Path.of(outputPath);
-            if (runGroup != null && !runGroup.isBlank()) {
-                base = base.resolve(runGroup);
-            }
-            Path dir = base.resolve(baseName);
+            ReportData data = ReportData.of(modeResults, runLabel, runParameters,
+                    List.of(mode), topK, runsPerTestCase, testCasesPath, List.of());
+
+            // Pfad: <base>/<mode>/<baseName>/
+            Path dir = base.resolve(mode).resolve(baseName);
             Files.createDirectories(dir);
 
             Path jsonPath = dir.resolve(baseName + ".json");
@@ -117,7 +130,7 @@ public class ReportWriter {
             log.info("HTML report written: {}", htmlPath);
 
             if (!failures.isEmpty()) {
-                String labelPrefix = "[" + baseName + "] ";
+                String labelPrefix = "[" + baseName + "/" + mode + "] ";
                 StringBuilder errorLogContent = new StringBuilder();
                 for (String failure : failures) {
                     errorLogContent.append(labelPrefix).append(failure).append(System.lineSeparator());
@@ -129,7 +142,7 @@ public class ReportWriter {
             }
 
         } catch (IOException e) {
-            log.error("Failed to write reports", e);
+            log.error("Failed to write reports for mode {}", mode, e);
         }
     }
 
