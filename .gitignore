@@ -9,6 +9,7 @@ target/
 *.iml
 .settings
 .project
+.classpath
 
 # Environment
 .env
@@ -22,9 +23,15 @@ __pycache__/
 
 # Reports
 reports/
+reports:*/
+output/
 
 # Lokale Docker-Configs
 docker-compose-local.yml
+
+# Logs
+eval.log
+*.log
 
 # macOS
 .DS_Store
