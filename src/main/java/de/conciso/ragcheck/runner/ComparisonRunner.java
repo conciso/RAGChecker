@@ -241,13 +241,13 @@ public class ComparisonRunner implements CommandLineRunner {
 
     private void printSummary(List<ComparisonEntry> entries) {
         List<ComparisonEntry> sorted = entries.stream()
-                .sorted((a, b) -> Double.compare(b.avgLlmF1(), a.avgLlmF1()))
+                .sorted((a, b) -> Double.compare(b.avgGraphMrr(), a.avgGraphMrr()))
                 .toList();
 
         String sep = "-".repeat(110);
         System.out.println();
         System.out.println("=== RAGChecker Parametervergleich ===");
-        System.out.println("Sortiert nach Ø LLM-F1 (absteigend)\n");
+        System.out.println("Sortiert nach Ø Graph-MRR (absteigend)\n");
         System.out.printf("%-3s %-25s %-20s %-8s %6s %8s %8s %8s %8s %8s %8s%n",
                 "#", "Timestamp", "Label", "Mode", "TopK",
                 "Graph-MRR", "NDCG@k", "Recall@k", "LLM-F1", "HitRate", "LLM-MRR");

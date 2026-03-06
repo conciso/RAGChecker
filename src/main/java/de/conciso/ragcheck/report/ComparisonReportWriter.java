@@ -410,7 +410,7 @@ public class ComparisonReportWriter {
                       rows.sort((a, b) => {
                         const av = a.cells[colIdx].textContent.trim();
                         const bv = b.cells[colIdx].textContent.trim();
-                        const an = parseFloat(av), bn = parseFloat(bv);
+                        const an = parseFloat(av.replace(',', '.')), bn = parseFloat(bv.replace(',', '.'));
                         if (!isNaN(an) && !isNaN(bn)) return asc ? an - bn : bn - an;
                         return asc ? av.localeCompare(bv) : bv.localeCompare(av);
                       });
