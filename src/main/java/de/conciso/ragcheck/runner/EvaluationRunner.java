@@ -86,7 +86,7 @@ public class EvaluationRunner implements CommandLineRunner {
 
     private String resolveLabel() {
         if (runLabelOverride != null && !runLabelOverride.isBlank()) return runLabelOverride;
-        return overrideEnvLoader.load().getOrDefault("label", "");
+        return overrideEnvLoader.buildLabel();
     }
 
     // -------------------------------------------------------------------------

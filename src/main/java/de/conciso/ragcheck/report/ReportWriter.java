@@ -62,27 +62,21 @@ public class ReportWriter {
     public void write(List<AggregatedEvalResult> results, List<String> failures) {
         Map<String, String> overrideParams = overrideEnvLoader.load();
 
-        // label: RAGCHECKER_RUN_LABEL hat Vorrang, sonst "label" aus override.env
+        // label: RAGCHECKER_RUN_LABEL hat Vorrang, sonst aus Env-Parametern gebaut
         String runLabel = (runLabelOverride != null && !runLabelOverride.isBlank())
                 ? runLabelOverride
-                : overrideParams.entrySet().stream()
-                        .filter(e -> e.getKey().equalsIgnoreCase("label"))
-                        .map(Map.Entry::getValue)
-                        .findFirst().orElse("");
+                : overrideEnvLoader.buildLabel();
 
-        // topK aus override.env (für den Report-Header), fallback 0 — case-insensitiv
+        // topK aus TOP_K-Env-Var
         int topK = 0;
-        String topKStr = overrideParams.entrySet().stream()
-                .filter(e -> e.getKey().equalsIgnoreCase("top_k"))
-                .map(Map.Entry::getValue)
-                .findFirst().orElse(null);
+        String topKStr = overrideParams.get("TOP_K");
         if (topKStr != null) {
             try { topK = Integer.parseInt(topKStr.trim()); } catch (NumberFormatException ignored) {}
         }
 
-        // runParameters: alle Werte aus override.env außer "label" und "top_k" — case-insensitiv
+        // runParameters: alle Parameter außer TOP_K (wird separat als topK-Feld erfasst)
         Map<String, String> runParameters = new LinkedHashMap<>(overrideParams);
-        runParameters.keySet().removeIf(k -> k.equalsIgnoreCase("label") || k.equalsIgnoreCase("top_k"));
+        runParameters.remove("TOP_K");
 
         String timestamp = LocalDateTime.now().format(TIMESTAMP_FORMAT);
         String baseName = (runLabel != null && !runLabel.isBlank())
