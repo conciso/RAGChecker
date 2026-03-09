@@ -19,7 +19,7 @@ public record AggregatedEvalResult(
                                           String queryMode) {
         return new AggregatedEvalResult(
                 tc.id(), tc.prompt(), tc.expectedDocuments(),
-                graphRuns.size(), queryMode,
+                Math.max(graphRuns.size(), llmRuns.size()), queryMode,
                 AggregatedGraphMetrics.of(tc.expectedDocuments(), graphRuns),
                 AggregatedLlmMetrics.of(llmRuns),
                 graphRuns, llmRuns

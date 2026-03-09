@@ -5,6 +5,7 @@ services:
     environment:
       - RAGCHECKER_RUN_GROUP=${RAGCHECKER_RUN_GROUP:-}
       - RAGCHECKER_RUN_LABEL=${RAGCHECKER_RUN_LABEL:-}
+      - RAGCHECKER_MODE=${RAGCHECKER_MODE:-evaluate}
     volumes:
       - ./testcases:/app/testcases:ro
       - ./reports:/app/reports

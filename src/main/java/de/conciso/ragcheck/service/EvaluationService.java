@@ -26,15 +26,22 @@ public class EvaluationService {
     private final LightRagClient lightRagClient;
     private final int runsPerTestCase;
     private final List<String> queryModes;
+    private final boolean doGraph;
+    private final boolean doLlm;
 
     public EvaluationService(
             LightRagClient lightRagClient,
             @Value("${ragchecker.runs.per-testcase:1}") int runsPerTestCase,
-            @Value("${ragchecker.query.modes}") String queryModesStr
+            @Value("${ragchecker.query.modes}") String queryModesStr,
+            @Value("${ragchecker.eval.targets:graph,llm}") String evalTargetsStr
     ) {
         this.lightRagClient = lightRagClient;
         this.runsPerTestCase = runsPerTestCase;
         this.queryModes = List.of(queryModesStr.split(","));
+        List<String> targets = List.of(evalTargetsStr.toLowerCase().split(","));
+        this.doGraph = targets.contains("graph");
+        this.doLlm = targets.contains("llm");
+        log.info("Eval-Targets: graph={} llm={}", doGraph, doLlm);
     }
 
     /**
@@ -68,43 +75,49 @@ public class EvaluationService {
                     String key = key(tc.id(), mode);
 
                     // --- Graph ---
-                    log.info("  [{}/{}] ({}/{}) — Graph: {}", tc.id(), mode, run, runsPerTestCase, tc.prompt());
-                    long graphStart = System.currentTimeMillis();
-                    GraphRetrievalData graphData;
-                    try {
-                        graphData = lightRagClient.queryData(tc.prompt(), mode, history);
-                    } catch (RestClientException e) {
-                        String failure = String.format("Graph [%s/%s] Lauf %d/%d: %s", tc.id(), mode, run, runsPerTestCase, e.getMessage());
-                        log.error("API-Fehler — {}", failure);
-                        failures.add(failure);
-                        graphData = new GraphRetrievalData(List.of(), List.of(), List.of(), Map.of());
+                    if (doGraph) {
+                        log.info("  [{}/{}] ({}/{}) — Graph: {}", tc.id(), mode, run, runsPerTestCase, tc.prompt());
+                        long graphStart = System.currentTimeMillis();
+                        GraphRetrievalData graphData;
+                        try {
+                            graphData = lightRagClient.queryData(tc.prompt(), mode, history);
+                        } catch (RestClientException e) {
+                            String failure = String.format("Graph [%s/%s] Lauf %d/%d: %s", tc.id(), mode, run, runsPerTestCase, e.getMessage());
+                            log.error("API-Fehler — {}", failure);
+                            failures.add(failure);
+                            graphData = new GraphRetrievalData(List.of(), List.of(), List.of(), Map.of());
+                        }
+                        long graphDuration = System.currentTimeMillis() - graphStart;
+                        graphRunsMap.get(key).add(GraphRetrievalRunResult.of(tc, graphData, graphDuration));
+                        log.info("  [{}/{}] ({}/{}) — Graph fertig in {}s", tc.id(), mode, run, runsPerTestCase,
+                                String.format("%.2f", graphDuration / 1000.0));
                     }
-                    long graphDuration = System.currentTimeMillis() - graphStart;
-                    graphRunsMap.get(key).add(GraphRetrievalRunResult.of(tc, graphData, graphDuration));
-                    log.info("  [{}/{}] ({}/{}) — Graph fertig in {}s", tc.id(), mode, run, runsPerTestCase,
-                            String.format("%.2f", graphDuration / 1000.0));
 
                     // --- LLM ---
-                    log.info("  [{}/{}] ({}/{}) — LLM:   {}", tc.id(), mode, run, runsPerTestCase, tc.prompt());
-                    long llmStart = System.currentTimeMillis();
-                    LightRagClient.LlmResponse llmResponse;
-                    try {
-                        llmResponse = lightRagClient.queryLlm(tc.prompt(), mode, history);
-                    } catch (RestClientException e) {
-                        String failure = String.format("LLM   [%s/%s] Lauf %d/%d: %s", tc.id(), mode, run, runsPerTestCase, e.getMessage());
-                        log.error("API-Fehler — {}", failure);
-                        failures.add(failure);
-                        llmResponse = new LightRagClient.LlmResponse(null, List.of());
+                    LightRagClient.LlmResponse llmResponse = null;
+                    if (doLlm) {
+                        log.info("  [{}/{}] ({}/{}) — LLM:   {}", tc.id(), mode, run, runsPerTestCase, tc.prompt());
+                        long llmStart = System.currentTimeMillis();
+                        try {
+                            llmResponse = lightRagClient.queryLlm(tc.prompt(), mode, history);
+                        } catch (RestClientException e) {
+                            String failure = String.format("LLM   [%s/%s] Lauf %d/%d: %s", tc.id(), mode, run, runsPerTestCase, e.getMessage());
+                            log.error("API-Fehler — {}", failure);
+                            failures.add(failure);
+                            llmResponse = new LightRagClient.LlmResponse(null, List.of());
+                        }
+                        long llmDuration = System.currentTimeMillis() - llmStart;
+                        llmRunsMap.get(key).add(LlmRunResult.of(tc, llmResponse.referencedDocuments(), llmResponse.responseText(), llmDuration));
+                        log.info("  [{}/{}] ({}/{}) — LLM fertig in {}s", tc.id(), mode, run, runsPerTestCase,
+                                String.format("%.2f", llmDuration / 1000.0));
                     }
-                    long llmDuration = System.currentTimeMillis() - llmStart;
-                    llmRunsMap.get(key).add(LlmRunResult.of(tc, llmResponse.referencedDocuments(), llmResponse.responseText(), llmDuration));
-                    log.info("  [{}/{}] ({}/{}) — LLM fertig in {}s", tc.id(), mode, run, runsPerTestCase,
-                            String.format("%.2f", llmDuration / 1000.0));
 
-                    // History für nächste Frage in dieser Session erweitern
-                    history.add(new LightRagClient.ConversationEntry("user", tc.prompt()));
-                    String assistantContent = llmResponse.responseText() != null ? llmResponse.responseText() : "";
-                    history.add(new LightRagClient.ConversationEntry("assistant", assistantContent));
+                    // History für nächste Frage in dieser Session erweitern (nur wenn LLM aktiv)
+                    if (doLlm && llmResponse != null) {
+                        history.add(new LightRagClient.ConversationEntry("user", tc.prompt()));
+                        String assistantContent = llmResponse.responseText() != null ? llmResponse.responseText() : "";
+                        history.add(new LightRagClient.ConversationEntry("assistant", assistantContent));
+                    }
                 }
 
                 // Zwischenergebnis nach jeder Session
@@ -132,7 +145,7 @@ public class EvaluationService {
                 String key = key(tc.id(), mode);
                 List<GraphRetrievalRunResult> graphRuns = graphRunsMap.get(key);
                 List<LlmRunResult> llmRuns = llmRunsMap.get(key);
-                if (graphRuns == null || graphRuns.isEmpty()) continue;
+                if ((graphRuns == null || graphRuns.isEmpty()) && (llmRuns == null || llmRuns.isEmpty())) continue;
                 AggregatedEvalResult result = AggregatedEvalResult.of(tc, graphRuns, llmRuns, mode);
                 results.add(result);
             }
