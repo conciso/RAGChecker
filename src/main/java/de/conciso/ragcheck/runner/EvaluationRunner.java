@@ -177,28 +177,32 @@ public class EvaluationRunner implements CommandLineRunner {
                 System.out.printf("=== Lauf %d/%d ===%n", i + 1, r.runs());
 
                 // Graph
-                GraphRetrievalRunResult g = r.graphRuns().get(i);
-                System.out.println("  [Graph]");
-                System.out.printf("    MRR=%.2f  NDCG@k=%.2f  Recall@k=%.2f  Dauer=%.2fs%n",
-                        g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs() / 1000.0);
-                System.out.println("    Ränge:");
-                for (Map.Entry<String, Integer> e : g.expectedDocumentRanks().entrySet()) {
-                    System.out.printf("      %-40s → Rang %d%n", e.getKey(), e.getValue());
-                }
-                for (String exp : r.expectedDocuments()) {
-                    if (!g.expectedDocumentRanks().containsKey(exp)) {
-                        System.out.printf("      %-40s → nicht gefunden%n", exp);
+                if (i < r.graphRuns().size()) {
+                    GraphRetrievalRunResult g = r.graphRuns().get(i);
+                    System.out.println("  [Graph]");
+                    System.out.printf("    MRR=%.2f  NDCG@k=%.2f  Recall@k=%.2f  Dauer=%.2fs%n",
+                            g.mrr(), g.ndcgAtK(), g.recallAtK(), g.durationMs() / 1000.0);
+                    System.out.println("    Ränge:");
+                    for (Map.Entry<String, Integer> e : g.expectedDocumentRanks().entrySet()) {
+                        System.out.printf("      %-40s → Rang %d%n", e.getKey(), e.getValue());
                     }
+                    for (String exp : r.expectedDocuments()) {
+                        if (!g.expectedDocumentRanks().containsKey(exp)) {
+                            System.out.printf("      %-40s → nicht gefunden%n", exp);
+                        }
+                    }
+                    System.out.println("    Gefunden (alle): " + String.join(", ", g.retrievedDocuments()));
                 }
-                System.out.println("    Gefunden (alle): " + String.join(", ", g.retrievedDocuments()));
 
                 // LLM
-                LlmRunResult l = r.llmRuns().get(i);
-                System.out.println("  [LLM]");
-                System.out.printf("    Recall=%.2f  Precision=%.2f  F1=%.2f  Hit=%s  MRR=%.2f  Dauer=%.2fs%n",
-                        l.recall(), l.precision(), l.f1(), l.hit() ? "✓" : "✗", l.mrr(), l.durationMs() / 1000.0);
-                System.out.println("    Gefunden: " +
-                        (l.retrievedDocuments().isEmpty() ? "(keine)" : String.join(", ", l.retrievedDocuments())));
+                if (i < r.llmRuns().size()) {
+                    LlmRunResult l = r.llmRuns().get(i);
+                    System.out.println("  [LLM]");
+                    System.out.printf("    Recall=%.2f  Precision=%.2f  F1=%.2f  Hit=%s  MRR=%.2f  Dauer=%.2fs%n",
+                            l.recall(), l.precision(), l.f1(), l.hit() ? "✓" : "✗", l.mrr(), l.durationMs() / 1000.0);
+                    System.out.println("    Gefunden: " +
+                            (l.retrievedDocuments().isEmpty() ? "(keine)" : String.join(", ", l.retrievedDocuments())));
+                }
                 System.out.println(thin);
             }
 
